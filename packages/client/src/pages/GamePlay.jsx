@@ -1,9 +1,10 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import { useParams, useLocation } from "wouter";
 import AIGameLoader from "../components/AIGameLoader";
 import PlayerInterface from "../components/UI/PlayerInterface";
 import GameHistory from "../components/UI/GameHistory";
 import Sidebar from "../components/UI/Sidebar";
+import WorldMap from "../map/WorldMap";
 import { useGameStore } from "@/stores/gameStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { useNarrativeStore } from "@/stores/narrativeStore";
@@ -123,6 +124,14 @@ const GamePlay = () => {
     );
   }
 
+  // Track visited rooms
+  const [visitedRooms, setVisitedRooms] = useState(new Set());
+  useEffect(() => {
+    if (currentRoom) {
+      setVisitedRooms((prev) => new Set([...prev, currentRoom]));
+    }
+  }, [currentRoom]);
+
   const currentRoomData = rooms.find((r) => r.room_id === currentRoom);
   const currentNpcs = npcsByRoom[currentRoom] || [];
   const currentObjects = objectsByRoom[currentRoom] || [];
@@ -148,6 +157,16 @@ const GamePlay = () => {
               )}
             </div>
           </div>
+        )}
+
+        {/* World Map */}
+        {rooms.length > 0 && (
+          <WorldMap
+            rooms={rooms}
+            players={players}
+            currentRoom={currentRoom}
+            visitedRooms={visitedRooms}
+          />
         )}
 
         {/* Narrative log */}
