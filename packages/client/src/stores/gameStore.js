@@ -1,6 +1,6 @@
 /**
- * Game state store — world, rooms, active game info.
- * Mirrors bonfire-quest-game GameState + RoomState models.
+ * Game state store — world, rooms, NPCs, objects, quests.
+ * Uses GET /game/details for metadata + GET /game/map for spatial data.
  */
 
 import { create } from "zustand";
@@ -13,15 +13,28 @@ const useGameStore = create(
       // --- state ---
       bonfireId: null,
       gamePrompt: "",
-      status: null, // "active" | null
+      status: null,
       worldStateSummary: "",
       lastGmReaction: "",
-      rooms: [], // RoomState[]
-      npcs: [], // NpcState[]
-      objects: [], // ObjectState[]
-      quests: [], // QuestState[]
-      feed: [], // activity feed
-      activeGames: [], // from list-active
+      initialEpisodeSummary: "",
+      gmAgentId: null,
+
+      // Spatial data (from /game/map)
+      rooms: [],           // [{room_id, name, description, connections, image_url, ...}]
+      players: [],         // [{agent_id, wallet, current_room}]
+      npcsByRoom: {},      // {room_id: [{npc_id, name, description, personality}]}
+      objectsByRoom: {},   // {room_id: [{object_id, name, obj_type, description}]}
+
+      // Game state (from /game/state)
+      quests: [],
+      agentContext: [],
+
+      // Feed
+      feed: [],
+
+      // Active games list
+      activeGames: [],
+
       isLoading: false,
       error: null,
 
@@ -31,37 +44,74 @@ const useGameStore = create(
         set({ isLoading: true, error: null });
         try {
           const data = await api.listActiveGames();
-          set({ activeGames: data.games || data || [] });
+          set({ activeGames: data.games || [] });
         } catch (err) {
           set({ error: err.message });
         }
         set({ isLoading: false });
       },
 
-      loadGameState: async (bonfireId) => {
+      loadGame: async (bonfireId) => {
         set({ isLoading: true, error: null, bonfireId });
         try {
-          const data = await api.getGameState(bonfireId);
-          set({
-            gamePrompt: data.game_prompt || "",
-            status: data.status || "active",
-            worldStateSummary: data.world_state_summary || "",
-            lastGmReaction: data.last_gm_reaction || "",
-            rooms: data.rooms || [],
-            npcs: data.npcs || [],
-            objects: data.objects || [],
-            quests: data.quests || [],
-          });
+          // Fetch details + map in parallel
+          const [details, map, state] = await Promise.all([
+            api.getGameDetails(bonfireId).catch(() => null),
+            api.getMap(bonfireId).catch(() => null),
+            api.getGameState(bonfireId).catch(() => null),
+          ]);
+
+          const updates = {};
+
+          if (details?.game) {
+            const g = details.game;
+            updates.gamePrompt = g.game_prompt || "";
+            updates.status = g.status || "active";
+            updates.worldStateSummary = g.world_state_summary || "";
+            updates.lastGmReaction = g.last_gm_reaction || "";
+            updates.initialEpisodeSummary = g.initial_episode_summary || "";
+            updates.gmAgentId = g.gm_agent_id || null;
+          }
+
+          if (map) {
+            updates.rooms = map.rooms || [];
+            updates.players = map.players || [];
+            updates.npcsByRoom = map.npcs_by_room || {};
+            updates.objectsByRoom = map.objects_by_room || {};
+          }
+
+          if (state) {
+            updates.quests = state.quests || [];
+            updates.agentContext = state.agent_context || [];
+          }
+
+          set(updates);
         } catch (err) {
           set({ error: err.message });
         }
         set({ isLoading: false });
+      },
+
+      refreshMap: async () => {
+        const { bonfireId } = get();
+        if (!bonfireId) return;
+        try {
+          const map = await api.getMap(bonfireId);
+          set({
+            rooms: map.rooms || [],
+            players: map.players || [],
+            npcsByRoom: map.npcs_by_room || {},
+            objectsByRoom: map.objects_by_room || {},
+          });
+        } catch (err) {
+          console.error("Failed to refresh map:", err);
+        }
       },
 
       loadFeed: async (bonfireId) => {
         try {
           const data = await api.getGameFeed(bonfireId || get().bonfireId);
-          set({ feed: data.feed || data.events || [] });
+          set({ feed: data.events || [] });
         } catch (err) {
           console.error("Failed to load feed:", err);
         }
@@ -81,20 +131,21 @@ const useGameStore = create(
         }
       },
 
-      // Apply a GM decision delta to local state (from WS event)
-      applyGmDelta: (delta) => {
-        const state = get();
-        const newRooms = delta.new_rooms_created || [];
-        const updatedRooms = delta.rooms_updated || [];
-        const newNpcs = delta.npcs_created || [];
+      // Get room data by ID
+      getRoom: (roomId) => {
+        return get().rooms.find(
+          (r) => r.room_id === roomId || r.roomId === roomId,
+        );
+      },
 
-        if (newRooms.length || updatedRooms.length) {
-          // Re-fetch full state for simplicity — room data is complex
-          state.loadGameState(state.bonfireId);
-        }
-        if (newNpcs.length) {
-          state.loadGameState(state.bonfireId);
-        }
+      // Get NPCs in a specific room
+      getRoomNpcs: (roomId) => {
+        return get().npcsByRoom[roomId] || [];
+      },
+
+      // Get objects in a specific room
+      getRoomObjects: (roomId) => {
+        return get().objectsByRoom[roomId] || [];
       },
 
       clearGame: () =>
@@ -104,10 +155,14 @@ const useGameStore = create(
           status: null,
           worldStateSummary: "",
           lastGmReaction: "",
+          initialEpisodeSummary: "",
+          gmAgentId: null,
           rooms: [],
-          npcs: [],
-          objects: [],
+          players: [],
+          npcsByRoom: {},
+          objectsByRoom: {},
           quests: [],
+          agentContext: [],
           feed: [],
           error: null,
         }),

@@ -90,6 +90,38 @@ export function getBonfirePricing(bonfireId) {
   return request("GET", `/bonfire/pricing?bonfire_id=${encodeURIComponent(bonfireId)}`);
 }
 
+// --- Map & rooms ---
+
+export function getMap(bonfireId) {
+  return request("GET", `/map?bonfire_id=${encodeURIComponent(bonfireId)}`);
+}
+
+export function getRoomChat(roomId, limit = 50) {
+  return request("GET", `/room/chat?room_id=${encodeURIComponent(roomId)}&limit=${limit}`);
+}
+
+export function getRoomNpcs(bonfireId, roomId) {
+  return request("GET", `/room/npcs?bonfire_id=${encodeURIComponent(bonfireId)}&room_id=${encodeURIComponent(roomId)}`);
+}
+
+export function getInventory(agentId, bonfireId = "") {
+  let url = `/inventory?agent_id=${encodeURIComponent(agentId)}`;
+  if (bonfireId) url += `&bonfire_id=${encodeURIComponent(bonfireId)}`;
+  return request("GET", url);
+}
+
+// --- NPC interaction ---
+
+export function interactNpc(body) {
+  return request("POST", "/npc/interact", body);
+}
+
+// --- Inventory ---
+
+export function useItem(body) {
+  return request("POST", "/inventory/use", body);
+}
+
 // --- Backend processing ---
 
 export function processStack(body, agentApiKey = "") {
