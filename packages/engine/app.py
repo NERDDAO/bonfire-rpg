@@ -115,7 +115,11 @@ def create_app(
     from handler import router  # noqa: PLC0415 — avoids circular import at module load
     app.include_router(router)
 
-    app.mount("/", StaticFiles(directory=str(config.GAME_DIR), html=True), name="static")
+    # Only serve static files if index.html exists (standalone mode).
+    # When running behind Vite dev proxy, the client is served by Vite.
+    static_index = config.GAME_DIR / "index.html"
+    if static_index.exists():
+        app.mount("/", StaticFiles(directory=str(config.GAME_DIR), html=True), name="static")
 
     return app
 
