@@ -1941,6 +1941,41 @@ def route_npc_interact(
     )
 
 
+@router.post("/game/move")
+def route_move(
+    body: dict[str, object] = Body(default={}),
+    store: GameStore = Depends(get_store),
+    room_hub: RoomHub = Depends(get_room_hub),
+) -> JSONResponse:
+    agent_id = _required_string(body, "agent_id")
+    room_id = _required_string(body, "room_id")
+    player = store.get_player(agent_id)
+    if not player:
+        return JSONResponse(status_code=404, content={"error": "agent not registered"})
+    # Validate connection — player can only move to connected rooms
+    current = store.get_room_by_id(player.bonfire_id, player.current_room)
+    if current:
+        conns = current.get("connections", [])
+        if room_id not in conns:
+            return JSONResponse(status_code=400, content={"error": "room not connected"})
+    if not store.move_player(agent_id, room_id):
+        return JSONResponse(status_code=400, content={"error": "move failed"})
+    # Subscribe to new room's WS channel
+    import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(room_hub.subscribe(agent_id, room_id))
+    except RuntimeError:
+        pass
+    new_room = store.get_room_by_id(player.bonfire_id, room_id)
+    return JSONResponse({
+        "success": True,
+        "room_id": room_id,
+        "room_name": new_room.get("name", "") if new_room else "",
+        "connections": new_room.get("connections", []) if new_room else [],
+    })
+
+
 @router.post("/game/inventory/use")
 def route_inventory_use(
     body: dict[str, object] = Body(default={}),

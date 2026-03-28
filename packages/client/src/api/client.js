@@ -114,6 +114,12 @@ export function getInventory(agentId, bonfireId = "") {
   return request("GET", url);
 }
 
+// --- Movement ---
+
+export function moveToRoom(agentId, roomId) {
+  return request("POST", "/move", { agent_id: agentId, room_id: roomId });
+}
+
 // --- NPC interaction ---
 
 export function interactNpc(body) {

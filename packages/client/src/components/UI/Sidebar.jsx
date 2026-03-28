@@ -1,15 +1,19 @@
 import { useState } from "react";
-import { Backpack, MapPin, Users, Zap, DoorOpen, MessageCircle, Sword, Send } from "lucide-react";
+import { Backpack, MapPin, Users, Zap, DoorOpen, MessageCircle, Sword, Send, Loader2 } from "lucide-react";
 import { usePlayerStore } from "@/stores/playerStore";
 import { useNarrativeStore, MSG } from "@/stores/narrativeStore";
 import { useGameStore } from "@/stores/gameStore";
+import * as api from "@/api/client";
 
 const Sidebar = ({ bonfireId, room, npcs, objects }) => {
   const { agentId, agentApiKey } = usePlayerStore();
   const { startNpcDialogue, appendMessage } = useNarrativeStore();
   const quests = useGameStore((s) => s.quests);
   const claimQuest = useGameStore((s) => s.claimQuest);
+  const refreshMap = useGameStore((s) => s.refreshMap);
+  const rooms = useGameStore((s) => s.rooms);
   const players = useGameStore((s) => s.players);
+  const [moving, setMoving] = useState(false);
 
   const myPlayer = players.find((p) => p.agent_id === agentId);
   const remainingEpisodes = myPlayer?.remaining_episodes ?? 0;
@@ -64,20 +68,38 @@ const Sidebar = ({ bonfireId, room, npcs, objects }) => {
             {room.name || "Unknown"}
           </h4>
 
-          {/* Exits */}
+          {/* Exits — clickable to move */}
           {room.connections?.length > 0 && (
             <div className="mb-3">
               <p className="text-xs text-gray-500 mb-1.5">Exits</p>
               <div className="flex flex-wrap gap-1.5">
-                {room.connections.map((conn) => (
-                  <span
-                    key={conn}
-                    className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded-md flex items-center gap-1"
-                  >
-                    <DoorOpen className="w-3 h-3 text-gray-500" />
-                    {conn}
-                  </span>
-                ))}
+                {room.connections.map((connId) => {
+                  const target = rooms.find((r) => r.room_id === connId);
+                  const label = target?.name || connId.slice(0, 8) + "...";
+                  return (
+                    <button
+                      key={connId}
+                      type="button"
+                      disabled={!agentId || moving}
+                      onClick={async () => {
+                        if (!agentId) return;
+                        setMoving(true);
+                        try {
+                          const result = await api.moveToRoom(agentId, connId);
+                          appendMessage(MSG.SYSTEM, `You travel to ${result.room_name || label}.`);
+                          refreshMap();
+                        } catch (err) {
+                          appendMessage(MSG.SYSTEM, `Can't go there: ${err.message}`);
+                        }
+                        setMoving(false);
+                      }}
+                      className="text-xs bg-gray-800 hover:bg-amber-900/40 disabled:opacity-50 text-gray-300 hover:text-amber-200 px-2.5 py-1.5 rounded-md flex items-center gap-1 transition-colors"
+                    >
+                      {moving ? <Loader2 className="w-3 h-3 animate-spin" /> : <DoorOpen className="w-3 h-3 text-amber-600" />}
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
