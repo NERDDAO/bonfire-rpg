@@ -17,7 +17,7 @@ const path = require('path');
 const fs = require('fs');
 
 function register(scope) {
-  const { app, realtimeHub, modDir, registerModRoute, nunjucks,
+  const { app, realtimeHub, modDir, registerModRoute, promptEnv,
     Player, Thing, Quest, Region, Location, LocationExit, Events,
     players, things, regions, gameLocations, factions,
     findActorByName, findThingByName, pushChatEntry,
@@ -459,18 +459,18 @@ function register(scope) {
   kg.refresh(scope).catch(() => {});
 
   // Template globals
-  nunjucks.addGlobal('getWorldEvents', (limit) => kg.getWorldEvents(limit));
-  nunjucks.addGlobal('getRegionLore', () => kg.getRegionLore());
-  nunjucks.addGlobal('getLocationFacts', (name) => kg.getLocationFacts(name));
-  nunjucks.addGlobal('getNpcMemories', (npcName) => kg.getNpcMemories(npcName));
-  nunjucks.addGlobal('getFactionIntel', () => kg.getFactionIntel());
-  nunjucks.addGlobal('getProphecies', () => kg.getProphecies());
-  nunjucks.addGlobal('getWorldKnowledge', () => kg.formatForPrompt());
-  nunjucks.addGlobal('getRumors', () => (kg.cache.get('rumors')?.data || []));
-  nunjucks.addGlobal('getDreamVisions', () => (kg.cache.get('dreams')?.data || []));
-  nunjucks.addGlobal('getItemHistory', (n) => (kg.cache.get(`item:${n}`)?.data || []));
-  nunjucks.addGlobal('getReputation', (n) => (kg.cache.get(`rep:${n}`)?.data || []));
-  nunjucks.addGlobal('getWorldWhispers', () => {
+  promptEnv.addGlobal('getWorldEvents', (limit) => kg.getWorldEvents(limit));
+  promptEnv.addGlobal('getRegionLore', () => kg.getRegionLore());
+  promptEnv.addGlobal('getLocationFacts', (name) => kg.getLocationFacts(name));
+  promptEnv.addGlobal('getNpcMemories', (npcName) => kg.getNpcMemories(npcName));
+  promptEnv.addGlobal('getFactionIntel', () => kg.getFactionIntel());
+  promptEnv.addGlobal('getProphecies', () => kg.getProphecies());
+  promptEnv.addGlobal('getWorldKnowledge', () => kg.formatForPrompt());
+  promptEnv.addGlobal('getRumors', () => (kg.cache.get('rumors')?.data || []));
+  promptEnv.addGlobal('getDreamVisions', () => (kg.cache.get('dreams')?.data || []));
+  promptEnv.addGlobal('getItemHistory', (n) => (kg.cache.get(`item:${n}`)?.data || []));
+  promptEnv.addGlobal('getReputation', (n) => (kg.cache.get(`rep:${n}`)?.data || []));
+  promptEnv.addGlobal('getWorldWhispers', () => {
     const events = kg.getWorldEvents(3);
     if (!events.length) return [];
     return events.map(e => {
@@ -481,11 +481,11 @@ function register(scope) {
       return 'The world breathes differently today.';
     });
   });
-  nunjucks.addGlobal('getDejaVu', (npcName) => {
+  promptEnv.addGlobal('getDejaVu', (npcName) => {
     const m = kg.getNpcMemories(npcName);
     return m.length ? m[m.length - 1]?.summary || null : null;
   });
-  nunjucks.addGlobal('getConvergenceHints', () => {
+  promptEnv.addGlobal('getConvergenceHints', () => {
     const events = kg.getWorldEvents(10);
     const mentions = {};
     for (const e of events) {
