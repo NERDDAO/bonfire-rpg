@@ -32,10 +32,12 @@ class GameStore:
         self,
         storage_path: Path | None = None,
         on_room_event: RoomEventCallback | None = None,
+        on_world_event: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self._lock = threading.Lock()
         self._storage_path = Path(storage_path or config.GAME_STORE_PATH)
         self.on_room_event: RoomEventCallback | None = on_room_event
+        self.on_world_event: Callable[[dict[str, Any]], None] | None = on_world_event
         self.players_by_agent: dict[str, PlayerState] = {}
         self.players_by_purchase: dict[str, PlayerState] = {}
         self.players_by_wallet: dict[str, list[str]] = {}
@@ -59,6 +61,15 @@ class GameStore:
         if cb is not None:
             try:
                 cb(room_id, event)
+            except Exception:
+                pass
+
+    def emit_world_event(self, event: dict[str, Any]) -> None:
+        """Broadcast an event to ALL connected players, not just one room."""
+        cb = self.on_world_event
+        if cb is not None:
+            try:
+                cb(event)
             except Exception:
                 pass
 
@@ -678,19 +689,15 @@ class GameStore:
                 "last_gm_reaction": game.last_gm_reaction,
                 "last_episode_id": game.last_episode_id,
             }
-            room_ids = [
-                str(r.get("room_id", ""))
-                for r in game.rooms
-                if isinstance(r, dict) and r.get("room_id")
-            ]
-        for rid in room_ids:
-            self.emit_room_event(rid, {
-                "type": "world_state",
-                "bonfire_id": bonfire_id,
-                "episode_id": episode_id,
-                "world_state_summary": result["world_state_summary"],
-                "last_gm_reaction": result["last_gm_reaction"],
-            })
+        # Broadcast GM reaction to ALL connected players (not just room-scoped)
+        world_event = {
+            "type": "gm_reaction",
+            "bonfire_id": bonfire_id,
+            "episode_id": episode_id,
+            "reaction": result["last_gm_reaction"],
+            "world_state_summary": result["world_state_summary"],
+        }
+        self.emit_world_event(world_event)
         return result
 
     def get_owner_agent_id(self, bonfire_id: str) -> str | None:
@@ -726,7 +733,7 @@ class GameStore:
             game.updated_at = datetime.now(UTC).isoformat()
             self._persist_locked()
 
-        self.emit_room_event(room.room_id, {
+        self.emit_world_event({
             "type": "room_created", "room": room_dict, "bonfire_id": bonfire_id,
         })
         self._schedule_room_image(bonfire_id, room.room_id)

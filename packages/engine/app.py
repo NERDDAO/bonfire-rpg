@@ -69,7 +69,17 @@ def create_app(
             return
 
         _hub = RoomHub()
-        _store = GameStore(storage_path=config.GAME_STORE_PATH, on_room_event=_hub.fire_event)
+        def _fire_world(event: dict) -> None:
+            """Schedule a broadcast to all connected players."""
+            loop = _hub._loop
+            if loop and not loop.is_closed():
+                loop.call_soon_threadsafe(loop.create_task, _hub.broadcast_all(event))
+
+        _store = GameStore(
+            storage_path=config.GAME_STORE_PATH,
+            on_room_event=_hub.fire_event,
+            on_world_event=_fire_world,
+        )
         _stack_timer = StackTimerRunner(
             store=_store, interval_seconds=config.STACK_PROCESS_INTERVAL_SECONDS
         )
