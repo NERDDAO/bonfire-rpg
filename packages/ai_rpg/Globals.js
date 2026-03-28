@@ -18,6 +18,16 @@ class Globals {
   static worldTime = null;
   static calendarDefinition = null;
 
+  static #activeInstance = null;
+
+  static get activeInstance() {
+    return Globals.#activeInstance;
+  }
+
+  static set activeInstance(instance) {
+    Globals.#activeInstance = instance;
+  }
+
   static #hashString(value) {
     const source = typeof value === 'string' ? value : String(value ?? '');
     let hash = 0;
