@@ -2697,14 +2697,17 @@ async def ws_game(websocket: WebSocket) -> None:
     store: GameStore = websocket.app.state.store
     hub: RoomHub = websocket.app.state.room_hub
 
-    if not agent_id or not api_key:
-        await websocket.close(code=4001, reason="agent_id and api_key required")
+    if not agent_id:
+        await websocket.close(code=4001, reason="agent_id required")
         return
 
     player = store.get_player(agent_id)
     if not player:
         await websocket.close(code=4004, reason="agent not registered")
         return
+
+    # API key is optional for registered players — registration already proved ownership.
+    # If provided, it's forwarded on agent chat calls; if not, server key is used.
 
     await websocket.accept()
     await hub.connect(agent_id, websocket)

@@ -102,9 +102,9 @@ const GamePlay = () => {
     if (currentRoom) setVisitedRooms((prev) => new Set([...prev, currentRoom]));
   }, [currentRoom]);
 
-  // WebSocket — only connect when we have both agent + key + registered player
+  // WebSocket — connect when agent is registered in game
   useEffect(() => {
-    if (!agentId || !agentApiKey || !myPlayer) return;
+    if (!agentId || !myPlayer) return;
     connect(agentId, agentApiKey, {
       onEvent: (event) => {
         handleRoomEvent(event);
@@ -209,10 +209,8 @@ const GamePlay = () => {
         <GameHistory chatEndRef={chatEndRef} />
 
         <div className="bg-gray-900 rounded-2xl p-3 sm:p-4 border border-amber-900/20">
-          {agentId && agentApiKey ? (
+          {agentId ? (
             <PlayerInterface bonfireId={bonfireId} />
-          ) : agentId && !agentApiKey ? (
-            <AgentKeyInput />
           ) : wallet ? (
             <div className="text-center py-4 text-gray-500 space-y-2">
               <p className="text-sm">Wallet connected. Looking for your agent...</p>
@@ -234,8 +232,8 @@ const GamePlay = () => {
         </div>
 
         <div className="flex items-center gap-2 text-xs text-gray-600 px-1">
-          <div className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : agentId && agentApiKey && myPlayer ? "bg-yellow-500" : "bg-gray-600"}`} />
-          {connected ? "Connected" : agentId && agentApiKey && myPlayer ? "Reconnecting..." : agentId && !agentApiKey ? "Need API key" : wallet ? "Spectating (no agent)" : "Spectating"}
+          <div className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : agentId && myPlayer ? "bg-yellow-500" : "bg-gray-600"}`} />
+          {connected ? "Connected" : agentId && myPlayer ? "Reconnecting..." : wallet ? "Spectating (no agent)" : "Spectating"}
           {lastGmReaction && (
             <span className="ml-auto text-gray-500 truncate max-w-[200px] sm:max-w-xs">GM: {lastGmReaction.slice(0, 80)}</span>
           )}
