@@ -1919,12 +1919,14 @@ def route_npc_interact(
         f"Do NOT break character or reveal you are an AI."
     )
 
+    augmented_message = f"{npc_prompt}\n\n---\n\nThe adventurer says: {message}"
+
     chat_url = f"{config.DELVE_BASE_URL}/agents/{gm_agent_id}/chat"
     chat_status, chat_payload = http_client._agent_json_request(
         "POST",
         chat_url,
         config.DELVE_API_KEY,
-        body={"message": message, "chat_history": [], "graph_mode": "static", "context": {"role": "npc", "npc_prompt": npc_prompt}},
+        body={"message": augmented_message, "chat_history": [], "graph_mode": "static", "context": {"role": "npc", "npc_id": npc.npc_id, "npc_name": npc.name}},
     )
     if chat_status != 200:
         return JSONResponse(status_code=chat_status, content=chat_payload)
