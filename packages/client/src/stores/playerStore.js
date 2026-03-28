@@ -1,86 +1,99 @@
 /**
- * Player state store — identity, inventory, episode quota.
- * Mirrors bonfire-quest-game PlayerState model.
+ * Player identity store — wallet, agent, API key.
+ * Game-derived state (currentRoom, inventory, episodes) comes from gameStore.
  */
 
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
+import { BrowserProvider } from "ethers";
 import * as api from "@/api/client";
 
 const usePlayerStore = create(
   devtools(
     (set, get) => ({
-      // --- state ---
-      agentId: null,
       wallet: null,
-      bonfireId: null,
-      currentRoom: "",
-      inventory: [], // object_ids
-      remainingEpisodes: 0,
-      turnsUsed: 0,
-      isActive: false,
-      agentApiKey: "", // stored in localStorage for persistence
+      agentId: null,
+      agentApiKey: "",
+      isConnecting: false,
+      error: null,
 
-      // --- actions ---
+      connectWallet: async () => {
+        if (!window.ethereum) {
+          set({ error: "No wallet found. Install MetaMask or a compatible wallet." });
+          return null;
+        }
+        set({ isConnecting: true, error: null });
+        try {
+          const provider = new BrowserProvider(window.ethereum);
+          const signer = await provider.getSigner();
+          const address = await signer.getAddress();
+          set({ wallet: address.toLowerCase() });
+          get().loadPersistedAgent();
+          return address.toLowerCase();
+        } catch (err) {
+          set({ error: err.message });
+          return null;
+        } finally {
+          set({ isConnecting: false });
+        }
+      },
 
-      setWallet: (wallet) => set({ wallet }),
+      disconnectWallet: () => {
+        set({ wallet: null, agentId: null, agentApiKey: "", error: null });
+        localStorage.removeItem("bonfire-rpg-agent-key");
+        localStorage.removeItem("bonfire-rpg-agent-id");
+      },
+
+      setAgentId: (id) => {
+        localStorage.setItem("bonfire-rpg-agent-id", id || "");
+        set({ agentId: id });
+      },
 
       setAgentApiKey: (key) => {
-        localStorage.setItem("bonfire-rpg-agent-key", key);
+        localStorage.setItem("bonfire-rpg-agent-key", key || "");
         set({ agentApiKey: key });
       },
 
-      loadAgentApiKey: () => {
+      loadPersistedAgent: () => {
         const key = localStorage.getItem("bonfire-rpg-agent-key") || "";
-        set({ agentApiKey: key });
+        const id = localStorage.getItem("bonfire-rpg-agent-id") || "";
+        set({ agentApiKey: key, agentId: id || null });
       },
 
-      updateFromGameState: (players, agentId) => {
-        const self = players?.find((p) => p.agent_id === agentId);
-        if (!self) return;
-        set({
-          agentId: self.agent_id,
-          bonfireId: self.bonfire_id,
-          currentRoom: self.current_room || "",
-          inventory: self.inventory || [],
-          remainingEpisodes: self.remaining_episodes ?? 0,
-          turnsUsed: self.turns_used ?? 0,
-          isActive: self.is_active ?? true,
-        });
-      },
-
-      registerPurchase: async (body) => {
-        const data = await api.registerPurchase(body);
-        set({
-          agentId: body.agent_id,
-          bonfireId: body.bonfire_id,
-          isActive: true,
-        });
-        return data;
-      },
-
-      restorePlayer: async (wallet, bonfireId) => {
-        const data = await api.restorePlayer({
-          wallet_address: wallet,
-          bonfire_id: bonfireId,
-        });
-        if (data.agent_id) {
-          set({ agentId: data.agent_id, bonfireId, isActive: true });
+      findMyAgent: async (bonfireId) => {
+        const { wallet } = get();
+        if (!wallet) return null;
+        try {
+          const data = await api.getWalletPurchasedAgents(wallet, bonfireId);
+          const agents = data.agents || data.records || data || [];
+          if (Array.isArray(agents) && agents.length > 0) {
+            const agent = agents[0];
+            const agentId = agent.agent_id || agent.agentId;
+            if (agentId) {
+              get().setAgentId(agentId);
+              return agentId;
+            }
+          }
+          return null;
+        } catch {
+          return null;
         }
-        return data;
       },
 
-      clearPlayer: () =>
-        set({
-          agentId: null,
-          wallet: null,
-          bonfireId: null,
-          currentRoom: "",
-          inventory: [],
-          remainingEpisodes: 0,
-          turnsUsed: 0,
-          isActive: false,
-        }),
+      restorePlayer: async (bonfireId) => {
+        const { wallet } = get();
+        if (!wallet) return null;
+        try {
+          const data = await api.restorePlayer({ wallet_address: wallet, bonfire_id: bonfireId });
+          if (data.agent_id) {
+            get().setAgentId(data.agent_id);
+            return data.agent_id;
+          }
+          return null;
+        } catch {
+          return null;
+        }
+      },
     }),
     { name: "player-store" },
   ),

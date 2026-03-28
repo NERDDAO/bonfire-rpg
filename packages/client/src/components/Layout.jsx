@@ -1,5 +1,6 @@
 import { Flame } from "lucide-react";
 import { useLocation } from "wouter";
+import WalletButton from "./WalletButton";
 
 const Layout = ({ children }) => {
   const [, navigate] = useLocation();
@@ -16,6 +17,7 @@ const Layout = ({ children }) => {
             <Flame className="w-6 h-6 text-amber-500" />
             <h1 className="text-xl font-bold text-amber-100">Bonfire RPG</h1>
           </button>
+          <WalletButton />
         </div>
       </header>
       <main className="max-w-7xl mx-auto px-4 py-6">{children}</main>

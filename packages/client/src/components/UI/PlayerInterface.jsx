@@ -10,12 +10,13 @@ const PlayerInterface = ({ bonfireId }) => {
   const refreshMap = useGameStore((s) => s.refreshMap);
 
   const handleSubmit = async () => {
-    if (!inputValue.trim() || !agentId) return;
+    const text = inputValue.trim();
+    if (!text || !agentId) return;
 
     if (talkingToNpc) {
-      await talkToNpc(agentId, talkingToNpc.npc_id);
+      await talkToNpc(text, agentId, talkingToNpc.npc_id);
     } else {
-      const result = await sendAction(agentId, bonfireId, agentApiKey);
+      const result = await sendAction(text, agentId, bonfireId, agentApiKey);
       if (result) refreshMap();
     }
   };

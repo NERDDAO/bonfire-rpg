@@ -27,10 +27,14 @@ function FitBounds({ positions }) {
   return null;
 }
 
+function roomTopologyKey(rooms) {
+  return rooms.map((r) => `${r.room_id}:${(r.connections || []).join(",")}`).join("|");
+}
+
 const WorldMap = ({ rooms, players, currentRoom, visitedRooms = new Set() }) => {
-  // Compute layout
-  const layout = useMemo(() => computeLayout(rooms), [rooms]);
-  const edges = useMemo(() => getEdges(rooms, layout), [rooms, layout]);
+  const topoKey = useMemo(() => roomTopologyKey(rooms), [rooms]);
+  const layout = useMemo(() => computeLayout(rooms), [topoKey]);
+  const edges = useMemo(() => getEdges(rooms, layout), [topoKey, layout]);
 
   // Track which rooms have other players
   const playerRooms = useMemo(() => {

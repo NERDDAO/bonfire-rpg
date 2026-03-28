@@ -60,12 +60,18 @@ const useGameStore = create(
       loadGame: async (bonfireId) => {
         set({ isLoading: true, error: null, bonfireId });
         try {
-          // Fetch details + map in parallel
           const [details, map, state] = await Promise.all([
             api.getGameDetails(bonfireId).catch(() => null),
             api.getMap(bonfireId).catch(() => null),
             api.getGameState(bonfireId).catch(() => null),
           ]);
+
+          // Distinguish backend unreachable from no game
+          if (!details && !map && !state) {
+            set({ error: "Cannot reach game server. Is the engine running?" });
+            set({ isLoading: false });
+            return;
+          }
 
           const updates = {};
 

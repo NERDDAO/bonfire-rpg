@@ -45,18 +45,14 @@ const useNarrativeStore = create(
         });
       },
 
-      // Unified message submission (narrator action or NPC dialogue)
-      _submit: async (apiCall, responseType, extras = {}) => {
-        const state = get();
-        if (state.isLoading) return;
-        const text = state.inputValue.trim();
-        if (!text) return;
+      _submit: async (message, apiCall, responseType, extras = {}) => {
+        if (get().isLoading || !message) return;
 
         set({ isLoading: true, inputValue: "" });
-        state.appendMessage(MSG.PLAYER, text);
+        get().appendMessage(MSG.PLAYER, message);
 
         try {
-          const data = await apiCall(text);
+          const data = await apiCall(message);
           const reply = data.reply || data.response || data.message || "";
           if (reply) get().appendMessage(responseType, reply, extras(data));
           return data;
@@ -68,16 +64,18 @@ const useNarrativeStore = create(
         }
       },
 
-      sendAction: (agentId, bonfireId, agentApiKey = "") => {
+      sendAction: (message, agentId, bonfireId, agentApiKey = "") => {
         return get()._submit(
+          message,
           (text) => api.completeChat({ agent_id: agentId, bonfire_id: bonfireId, message: text }, agentApiKey),
           MSG.NARRATOR,
           () => ({}),
         );
       },
 
-      talkToNpc: (agentId, npcId) => {
+      talkToNpc: (message, agentId, npcId) => {
         return get()._submit(
+          message,
           (text) => api.interactNpc({ agent_id: agentId, npc_id: npcId, message: text }),
           MSG.NPC,
           (data) => ({ npcName: data.npc_name || "NPC", npcId }),

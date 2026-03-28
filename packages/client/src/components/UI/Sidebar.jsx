@@ -5,10 +5,16 @@ import { useNarrativeStore, MSG } from "@/stores/narrativeStore";
 import { useGameStore } from "@/stores/gameStore";
 
 const Sidebar = ({ bonfireId, room, npcs, objects }) => {
-  const { inventory, remainingEpisodes, turnsUsed, agentId, agentApiKey } = usePlayerStore();
+  const { agentId, agentApiKey } = usePlayerStore();
   const { startNpcDialogue, appendMessage } = useNarrativeStore();
   const quests = useGameStore((s) => s.quests);
   const claimQuest = useGameStore((s) => s.claimQuest);
+  const players = useGameStore((s) => s.players);
+
+  const myPlayer = players.find((p) => p.agent_id === agentId);
+  const remainingEpisodes = myPlayer?.remaining_episodes ?? 0;
+  const turnsUsed = myPlayer?.turns_used ?? 0;
+  const inventory = myPlayer?.inventory || [];
 
   const [claimingQuest, setClaimingQuest] = useState(null);
   const [claimText, setClaimText] = useState("");

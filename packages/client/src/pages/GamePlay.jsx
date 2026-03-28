@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState } from "react";
 import { useParams, useLocation } from "wouter";
-import { Map, Backpack, ChevronDown, ChevronUp } from "lucide-react";
+import { Map, Backpack, ChevronDown, ChevronUp, AlertCircle } from "lucide-react";
 import AIGameLoader from "../components/AIGameLoader";
 import PlayerInterface from "../components/UI/PlayerInterface";
 import GameHistory from "../components/UI/GameHistory";
@@ -29,20 +29,24 @@ const GamePlay = () => {
 
   const {
     loadGame, refreshMap, rooms, players, npcsByRoom, objectsByRoom,
-    isLoading: gameLoading, status, lastGmReaction,
+    isLoading: gameLoading, status, error: gameError, lastGmReaction,
   } = useGameStore();
 
-  const { agentId, currentRoom, agentApiKey, loadAgentApiKey, updateFromGameState } = usePlayerStore();
+  const { wallet, agentId, agentApiKey, loadPersistedAgent, findMyAgent, restorePlayer } = usePlayerStore();
   const { history, isLoading: chatLoading, appendMessage, clearHistory, handleRoomEvent } = useNarrativeStore();
   const { connect, disconnect, connected } = useWsStore();
+
+  // Derive current room from game state
+  const myPlayer = players.find((p) => p.agent_id === agentId);
+  const currentRoom = myPlayer?.current_room || "";
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [history]);
 
-  // Load game on mount
+  // Load game + try to find agent on mount
   useEffect(() => {
-    loadAgentApiKey();
+    loadPersistedAgent();
     clearHistory();
     lastDescribedRoom.current = null;
 
@@ -54,18 +58,18 @@ const GamePlay = () => {
     });
   }, [bonfireId]);
 
-  // Sync player state from map data
+  // When wallet connects, try to find/restore agent
   useEffect(() => {
-    if (players.length > 0 && agentId) {
-      updateFromGameState(players, agentId);
+    if (wallet && !agentId && bonfireId) {
+      findMyAgent(bonfireId).then((found) => {
+        if (!found) restorePlayer(bonfireId);
+      });
     }
-  }, [players, agentId]);
+  }, [wallet, bonfireId]);
 
   // Track visited rooms
   useEffect(() => {
-    if (currentRoom) {
-      setVisitedRooms((prev) => new Set([...prev, currentRoom]));
-    }
+    if (currentRoom) setVisitedRooms((prev) => new Set([...prev, currentRoom]));
   }, [currentRoom]);
 
   // WebSocket
@@ -94,16 +98,26 @@ const GamePlay = () => {
     appendMessage(MSG.SYSTEM, `--- ${room.name || "Unknown"} ---\n${room.description || ""}\nExits: ${exits}`);
 
     const npcs = npcsByRoom[currentRoom] || [];
-    if (npcs.length > 0) {
-      appendMessage(MSG.SYSTEM, `You see: ${npcs.map((n) => n.name).join(", ")}`);
-    }
+    if (npcs.length > 0) appendMessage(MSG.SYSTEM, `You see: ${npcs.map((n) => n.name).join(", ")}`);
     const items = objectsByRoom[currentRoom] || [];
-    if (items.length > 0) {
-      appendMessage(MSG.SYSTEM, `On the ground: ${items.map((o) => `${o.name} [${o.obj_type}]`).join(", ")}`);
-    }
+    if (items.length > 0) appendMessage(MSG.SYSTEM, `On the ground: ${items.map((o) => `${o.name} [${o.obj_type}]`).join(", ")}`);
   }, [currentRoom, rooms]);
 
+  // Loading state
   if (gameLoading && !status) return <AIGameLoader />;
+
+  // Error state
+  if (gameError) {
+    return (
+      <div className="text-center py-16">
+        <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+        <p className="text-gray-300 mb-2">{gameError}</p>
+        <button type="button" onClick={() => navigate("/")} className="mt-4 text-amber-500 hover:text-amber-400">
+          Back to lobby
+        </button>
+      </div>
+    );
+  }
 
   if (!status) {
     return (
@@ -167,9 +181,14 @@ const GamePlay = () => {
         <div className="bg-gray-900 rounded-2xl p-3 sm:p-4 border border-amber-900/20">
           {agentId ? (
             <PlayerInterface bonfireId={bonfireId} />
+          ) : wallet ? (
+            <div className="text-center py-4 text-gray-500">
+              <p className="text-sm">No agent found for this world.</p>
+              <p className="text-xs mt-1 text-gray-600">Purchase an agent slot to start playing.</p>
+            </div>
           ) : (
-            <div className="text-center py-4 sm:py-6 text-gray-500">
-              <p className="text-sm">Connect your wallet and purchase an agent to enter this world.</p>
+            <div className="text-center py-4 text-gray-500">
+              <p className="text-sm">Connect your wallet to enter this world.</p>
               <p className="text-xs mt-1 text-gray-600">Spectator mode — viewing only.</p>
             </div>
           )}
