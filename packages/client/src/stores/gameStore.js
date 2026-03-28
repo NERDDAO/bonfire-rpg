@@ -7,6 +7,12 @@ import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import * as api from "@/api/client";
 
+let _refreshTimer = null;
+function debouncedRefresh(fn, delay = 400) {
+  clearTimeout(_refreshTimer);
+  _refreshTimer = setTimeout(fn, delay);
+}
+
 const useGameStore = create(
   devtools(
     (set, get) => ({
@@ -92,20 +98,22 @@ const useGameStore = create(
         set({ isLoading: false });
       },
 
-      refreshMap: async () => {
-        const { bonfireId } = get();
-        if (!bonfireId) return;
-        try {
-          const map = await api.getMap(bonfireId);
-          set({
-            rooms: map.rooms || [],
-            players: map.players || [],
-            npcsByRoom: map.npcs_by_room || {},
-            objectsByRoom: map.objects_by_room || {},
-          });
-        } catch (err) {
-          console.error("Failed to refresh map:", err);
-        }
+      refreshMap: () => {
+        debouncedRefresh(async () => {
+          const { bonfireId } = get();
+          if (!bonfireId) return;
+          try {
+            const map = await api.getMap(bonfireId);
+            set({
+              rooms: map.rooms || [],
+              players: map.players || [],
+              npcsByRoom: map.npcs_by_room || {},
+              objectsByRoom: map.objects_by_room || {},
+            });
+          } catch (err) {
+            console.error("Failed to refresh map:", err);
+          }
+        });
       },
 
       loadFeed: async (bonfireId) => {
@@ -131,21 +139,14 @@ const useGameStore = create(
         }
       },
 
-      // Get room data by ID
+      claimQuest: async (questId, agentId, submission, agentApiKey = "") => {
+        const result = await api.claimQuest({ quest_id: questId, agent_id: agentId, submission }, agentApiKey);
+        get().refreshMap();
+        return result;
+      },
+
       getRoom: (roomId) => {
-        return get().rooms.find(
-          (r) => r.room_id === roomId || r.roomId === roomId,
-        );
-      },
-
-      // Get NPCs in a specific room
-      getRoomNpcs: (roomId) => {
-        return get().npcsByRoom[roomId] || [];
-      },
-
-      // Get objects in a specific room
-      getRoomObjects: (roomId) => {
-        return get().objectsByRoom[roomId] || [];
+        return get().rooms.find((r) => r.room_id === roomId);
       },
 
       clearGame: () =>

@@ -8,22 +8,26 @@ const REPULSION = 120;
 const ATTRACTION = 0.05;
 const DAMPING = 0.85;
 const ITERATIONS = 150;
-const SCALE = 0.001; // Convert pixel positions to lat/lng scale
+const SCALE = 0.001;
+
+function buildNameToIdMap(rooms) {
+  const map = new Map();
+  for (const room of rooms) {
+    map.set(room.name?.toLowerCase(), room.room_id);
+    map.set(room.room_id, room.room_id);
+  }
+  return map;
+}
 
 /**
  * Compute positions for rooms using a simple force-directed algorithm.
  * @param {Array} rooms - [{room_id, name, connections: [room_id]}]
- * @returns {Map<string, {lat: number, lng: number}>} - room_id → position
+ * @returns {Map<string, {lat: number, lng: number}>}
  */
 export function computeLayout(rooms) {
   if (!rooms || rooms.length === 0) return new Map();
 
-  // Build adjacency from connections (connections are room names or IDs)
-  const nameToId = new Map();
-  for (const room of rooms) {
-    nameToId.set(room.name?.toLowerCase(), room.room_id);
-    nameToId.set(room.room_id, room.room_id);
-  }
+  const nameToId = buildNameToIdMap(rooms);
 
   // Initialize positions with slight randomness
   const positions = new Map();
@@ -120,11 +124,7 @@ export function computeLayout(rooms) {
  * @returns {Array<[[lat,lng],[lat,lng]]>}
  */
 export function getEdges(rooms, layout) {
-  const nameToId = new Map();
-  for (const room of rooms) {
-    nameToId.set(room.name?.toLowerCase(), room.room_id);
-    nameToId.set(room.room_id, room.room_id);
-  }
+  const nameToId = buildNameToIdMap(rooms);
 
   const edges = [];
   const seen = new Set();

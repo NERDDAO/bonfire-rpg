@@ -8,34 +8,34 @@ import Sidebar from "../components/UI/Sidebar";
 import WorldMap from "../map/WorldMap";
 import { useGameStore } from "@/stores/gameStore";
 import { usePlayerStore } from "@/stores/playerStore";
-import { useNarrativeStore } from "@/stores/narrativeStore";
+import { useNarrativeStore, WS_EVENT, MSG } from "@/stores/narrativeStore";
 import { useWsStore } from "@/stores/wsStore";
+
+const WORLD_CHANGING_EVENTS = new Set([
+  WS_EVENT.GM_REACTION, WS_EVENT.NPC_SPAWNED, WS_EVENT.ROOM_UPDATED,
+  WS_EVENT.OBJECT_CREATED, WS_EVENT.PLAYER_MOVED,
+]);
 
 const GamePlay = () => {
   const params = useParams();
   const [, navigate] = useLocation();
   const bonfireId = decodeURIComponent(params.bonfireId);
   const chatEndRef = useRef(null);
+  const lastDescribedRoom = useRef(null);
 
-  // Mobile toggles
   const [showMap, setShowMap] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
-
-  // Visited rooms tracking
   const [visitedRooms, setVisitedRooms] = useState(new Set());
 
   const {
     loadGame, refreshMap, rooms, players, npcsByRoom, objectsByRoom,
-    isLoading: gameLoading, status, gamePrompt, worldStateSummary,
-    initialEpisodeSummary, lastGmReaction,
+    isLoading: gameLoading, status, lastGmReaction,
   } = useGameStore();
 
-  const { agentId, currentRoom, agentApiKey, loadAgentApiKey } = usePlayerStore();
-  const { history, isLoading: chatLoading, appendMessage, clearHistory } = useNarrativeStore();
+  const { agentId, currentRoom, agentApiKey, loadAgentApiKey, updateFromGameState } = usePlayerStore();
+  const { history, isLoading: chatLoading, appendMessage, clearHistory, handleRoomEvent } = useNarrativeStore();
   const { connect, disconnect, connected } = useWsStore();
-  const handleRoomEvent = useNarrativeStore((s) => s.handleRoomEvent);
 
-  // Scroll to bottom on new messages
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [history]);
@@ -44,26 +44,20 @@ const GamePlay = () => {
   useEffect(() => {
     loadAgentApiKey();
     clearHistory();
+    lastDescribedRoom.current = null;
+
     loadGame(bonfireId).then(() => {
-      const game = useGameStore.getState();
-      if (game.initialEpisodeSummary) {
-        appendMessage("narrator", game.initialEpisodeSummary);
-      } else if (game.gamePrompt) {
-        appendMessage("narrator", game.gamePrompt);
-      }
-      if (game.worldStateSummary) {
-        appendMessage("gm", game.worldStateSummary);
-      }
+      const { initialEpisodeSummary, gamePrompt, worldStateSummary } = useGameStore.getState();
+      if (initialEpisodeSummary) appendMessage(MSG.NARRATOR, initialEpisodeSummary);
+      else if (gamePrompt) appendMessage(MSG.NARRATOR, gamePrompt);
+      if (worldStateSummary) appendMessage(MSG.GM, worldStateSummary);
     });
   }, [bonfireId]);
 
-  // Update player room from map data
+  // Sync player state from map data
   useEffect(() => {
     if (players.length > 0 && agentId) {
-      const self = players.find((p) => p.agent_id === agentId);
-      if (self) {
-        usePlayerStore.setState({ currentRoom: self.current_room || "" });
-      }
+      updateFromGameState(players, agentId);
     }
   }, [players, agentId]);
 
@@ -74,45 +68,42 @@ const GamePlay = () => {
     }
   }, [currentRoom]);
 
-  // Connect WebSocket
+  // WebSocket
   useEffect(() => {
-    if (agentId) {
-      connect(agentId, {
-        onEvent: (event) => {
-          handleRoomEvent(event);
-          const type = event.type || event.event_type;
-          if (["gm_reaction", "npc_spawned", "room_updated", "object_created", "player_moved"].includes(type)) {
-            refreshMap();
-          }
-        },
-      });
-      return () => disconnect();
-    }
+    if (!agentId) return;
+    connect(agentId, {
+      onEvent: (event) => {
+        handleRoomEvent(event);
+        const type = event.type || event.event_type;
+        if (WORLD_CHANGING_EVENTS.has(type)) refreshMap();
+      },
+    });
+    return () => disconnect();
   }, [agentId]);
 
-  // Describe room on entry
+  // Describe room on entry (deduplicated)
   useEffect(() => {
     if (!currentRoom || rooms.length === 0) return;
+    if (lastDescribedRoom.current === currentRoom) return;
+    lastDescribedRoom.current = currentRoom;
+
     const room = rooms.find((r) => r.room_id === currentRoom);
-    if (room) {
-      const exits = (room.connections || []).join(", ") || "none";
-      appendMessage("system", `--- ${room.name || "Unknown"} ---\n${room.description || ""}\nExits: ${exits}`);
+    if (!room) return;
 
-      const npcs = npcsByRoom[currentRoom] || [];
-      if (npcs.length > 0) {
-        appendMessage("system", `You see: ${npcs.map((n) => n.name).join(", ")}`);
-      }
+    const exits = (room.connections || []).join(", ") || "none";
+    appendMessage(MSG.SYSTEM, `--- ${room.name || "Unknown"} ---\n${room.description || ""}\nExits: ${exits}`);
 
-      const items = objectsByRoom[currentRoom] || [];
-      if (items.length > 0) {
-        appendMessage("system", `On the ground: ${items.map((o) => `${o.name} [${o.obj_type}]`).join(", ")}`);
-      }
+    const npcs = npcsByRoom[currentRoom] || [];
+    if (npcs.length > 0) {
+      appendMessage(MSG.SYSTEM, `You see: ${npcs.map((n) => n.name).join(", ")}`);
     }
-  }, [currentRoom]);
+    const items = objectsByRoom[currentRoom] || [];
+    if (items.length > 0) {
+      appendMessage(MSG.SYSTEM, `On the ground: ${items.map((o) => `${o.name} [${o.obj_type}]`).join(", ")}`);
+    }
+  }, [currentRoom, rooms]);
 
-  if (gameLoading && !status) {
-    return <AIGameLoader />;
-  }
+  if (gameLoading && !status) return <AIGameLoader />;
 
   if (!status) {
     return (
@@ -131,17 +122,12 @@ const GamePlay = () => {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 lg:gap-6">
-      {/* Main column */}
       <div className="lg:col-span-3 space-y-4">
         {/* Room header */}
         {currentRoomData && (
           <div className="bg-gray-900 rounded-2xl border border-amber-900/20 overflow-hidden">
             {currentRoomData.image_url && (
-              <img
-                src={currentRoomData.image_url}
-                alt={currentRoomData.name}
-                className="w-full h-36 sm:h-48 object-cover"
-              />
+              <img src={currentRoomData.image_url} alt={currentRoomData.name} className="w-full h-36 sm:h-48 object-cover" />
             )}
             <div className="p-3 sm:p-4">
               <h2 className="text-lg sm:text-xl font-bold text-amber-100">{currentRoomData.name}</h2>
@@ -154,44 +140,30 @@ const GamePlay = () => {
 
         {/* Mobile toggles */}
         <div className="flex gap-2 lg:hidden">
-          <button
-            type="button"
-            onClick={() => setShowMap((v) => !v)}
-            className="flex-1 bg-gray-900 border border-amber-900/20 rounded-lg px-3 py-2 text-sm text-gray-300 flex items-center justify-center gap-2"
-          >
-            <Map className="w-4 h-4 text-amber-500" />
-            Map
+          <button type="button" onClick={() => setShowMap((v) => !v)} className="flex-1 bg-gray-900 border border-amber-900/20 rounded-lg px-3 py-2 text-sm text-gray-300 flex items-center justify-center gap-2">
+            <Map className="w-4 h-4 text-amber-500" /> Map
             {showMap ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           </button>
-          <button
-            type="button"
-            onClick={() => setShowSidebar((v) => !v)}
-            className="flex-1 bg-gray-900 border border-amber-900/20 rounded-lg px-3 py-2 text-sm text-gray-300 flex items-center justify-center gap-2"
-          >
-            <Backpack className="w-4 h-4 text-amber-500" />
-            Info
+          <button type="button" onClick={() => setShowSidebar((v) => !v)} className="flex-1 bg-gray-900 border border-amber-900/20 rounded-lg px-3 py-2 text-sm text-gray-300 flex items-center justify-center gap-2">
+            <Backpack className="w-4 h-4 text-amber-500" /> Info
             {showSidebar ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           </button>
         </div>
 
-        {/* Mobile sidebar (collapsible) */}
         {showSidebar && (
           <div className="lg:hidden">
             <Sidebar bonfireId={bonfireId} room={currentRoomData} npcs={currentNpcs} objects={currentObjects} />
           </div>
         )}
 
-        {/* World Map — always visible on desktop, collapsible on mobile */}
         {rooms.length > 0 && (
           <div className={`${showMap ? "block" : "hidden"} lg:block`}>
             <WorldMap rooms={rooms} players={players} currentRoom={currentRoom} visitedRooms={visitedRooms} />
           </div>
         )}
 
-        {/* Narrative log */}
         <GameHistory chatEndRef={chatEndRef} />
 
-        {/* Player input */}
         <div className="bg-gray-900 rounded-2xl p-3 sm:p-4 border border-amber-900/20">
           {agentId ? (
             <PlayerInterface bonfireId={bonfireId} />
@@ -203,19 +175,15 @@ const GamePlay = () => {
           )}
         </div>
 
-        {/* Status bar */}
         <div className="flex items-center gap-2 text-xs text-gray-600 px-1">
           <div className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-gray-600"}`} />
           {connected ? "Connected" : agentId ? "Disconnected" : "Spectating"}
           {lastGmReaction && (
-            <span className="ml-auto text-gray-500 truncate max-w-[200px] sm:max-w-xs">
-              GM: {lastGmReaction.slice(0, 80)}
-            </span>
+            <span className="ml-auto text-gray-500 truncate max-w-[200px] sm:max-w-xs">GM: {lastGmReaction.slice(0, 80)}</span>
           )}
         </div>
       </div>
 
-      {/* Desktop sidebar */}
       <div className="hidden lg:block">
         <Sidebar bonfireId={bonfireId} room={currentRoomData} npcs={currentNpcs} objects={currentObjects} />
       </div>

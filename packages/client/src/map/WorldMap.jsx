@@ -1,24 +1,19 @@
-import { useMemo } from "react";
+import { useMemo, useEffect } from "react";
 import { MapContainer, CircleMarker, Polyline, Tooltip, useMap } from "react-leaflet";
 import { computeLayout, getEdges } from "./layout";
 import "leaflet/dist/leaflet.css";
 
-/**
- * Fantasy world map — force-directed room graph rendered on Leaflet.
- * No tile layer — dark background with room nodes and connection edges.
- */
-
 const ROOM_COLORS = {
-  current: "#f59e0b",    // amber-500 — player is here
-  visited: "#78716c",    // stone-500 — been here
-  discovered: "#44403c", // stone-700 — visible but not visited
-  hasPlayers: "#22c55e", // green-500 — other players here
+  current: "#f59e0b",
+  visited: "#78716c",
+  discovered: "#44403c",
+  hasPlayers: "#22c55e",
 };
 
 function FitBounds({ positions }) {
   const map = useMap();
 
-  useMemo(() => {
+  useEffect(() => {
     if (positions.length === 0) return;
     const lats = positions.map((p) => p[0]);
     const lngs = positions.map((p) => p[1]);
@@ -27,7 +22,7 @@ function FitBounds({ positions }) {
       [Math.max(...lats) + 0.02, Math.max(...lngs) + 0.02],
     ];
     map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
-  }, [positions.length]);
+  }, [positions.length, map]);
 
   return null;
 }

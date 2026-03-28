@@ -1,15 +1,14 @@
 import { useState } from "react";
 import { Backpack, MapPin, Users, Zap, DoorOpen, MessageCircle, Sword, Send } from "lucide-react";
 import { usePlayerStore } from "@/stores/playerStore";
-import { useNarrativeStore } from "@/stores/narrativeStore";
+import { useNarrativeStore, MSG } from "@/stores/narrativeStore";
 import { useGameStore } from "@/stores/gameStore";
-import * as api from "@/api/client";
 
 const Sidebar = ({ bonfireId, room, npcs, objects }) => {
-  const { inventory, remainingEpisodes, turnsUsed, agentId } = usePlayerStore();
+  const { inventory, remainingEpisodes, turnsUsed, agentId, agentApiKey } = usePlayerStore();
   const { startNpcDialogue, appendMessage } = useNarrativeStore();
   const quests = useGameStore((s) => s.quests);
-  const refreshMap = useGameStore((s) => s.refreshMap);
+  const claimQuest = useGameStore((s) => s.claimQuest);
 
   const [claimingQuest, setClaimingQuest] = useState(null);
   const [claimText, setClaimText] = useState("");
@@ -19,23 +18,18 @@ const Sidebar = ({ bonfireId, room, npcs, objects }) => {
     if (!claimText.trim() || !agentId || claimLoading) return;
     setClaimLoading(true);
     try {
-      const result = await api.claimQuest({
-        quest_id: quest.quest_id,
-        agent_id: agentId,
-        submission: claimText.trim(),
-      });
+      const result = await claimQuest(quest.quest_id, agentId, claimText.trim(), agentApiKey);
       const verdict = result.verdict || "unknown";
       const reward = result.reward_granted || 0;
       if (verdict === "accepted" || reward > 0) {
-        appendMessage("gm", `Quest completed! +${reward} episodes awarded.`);
+        appendMessage(MSG.GM, `Quest completed! +${reward} episodes awarded.`);
       } else {
-        appendMessage("gm", `Quest claim: ${verdict}. Try again.`);
+        appendMessage(MSG.GM, `Quest claim: ${verdict}. Try again.`);
       }
       setClaimingQuest(null);
       setClaimText("");
-      refreshMap();
     } catch (err) {
-      appendMessage("system", `Quest claim failed: ${err.message}`);
+      appendMessage(MSG.SYSTEM, `Quest claim failed: ${err.message}`);
     }
     setClaimLoading(false);
   };

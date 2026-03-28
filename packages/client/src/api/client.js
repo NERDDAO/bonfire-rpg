@@ -5,6 +5,10 @@
 
 const API_BASE = "/game";
 
+function authHeaders(agentApiKey) {
+  return agentApiKey ? { "X-Agent-Api-Key": agentApiKey } : {};
+}
+
 async function request(method, path, body = null, headers = {}) {
   const opts = {
     method,
@@ -45,17 +49,17 @@ export function createGame(body) {
 // --- Player actions ---
 
 export function takeTurn(body, agentApiKey = "") {
-  const headers = agentApiKey ? { "X-Agent-Api-Key": agentApiKey } : {};
+  const headers = authHeaders(agentApiKey);
   return request("POST", "/turn", body, headers);
 }
 
 export function completeChat(body, agentApiKey = "") {
-  const headers = agentApiKey ? { "X-Agent-Api-Key": agentApiKey } : {};
+  const headers = authHeaders(agentApiKey);
   return request("POST", "/agents/complete", body, headers);
 }
 
 export function claimQuest(body, agentApiKey = "") {
-  const headers = agentApiKey ? { "X-Agent-Api-Key": agentApiKey } : {};
+  const headers = authHeaders(agentApiKey);
   return request("POST", "/quests/claim", body, headers);
 }
 
@@ -125,7 +129,7 @@ export function useItem(body) {
 // --- Backend processing ---
 
 export function processStack(body, agentApiKey = "") {
-  const headers = agentApiKey ? { "X-Agent-Api-Key": agentApiKey } : {};
+  const headers = authHeaders(agentApiKey);
   return request("POST", "/agents/process-stack", body, headers);
 }
 
