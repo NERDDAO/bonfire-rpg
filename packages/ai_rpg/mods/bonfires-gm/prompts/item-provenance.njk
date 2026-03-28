@@ -1,0 +1,21 @@
+{#
+  Item provenance — objects carry history from their journey across players.
+
+  When examining, identifying, or appraising an item, the narrator can
+  reference its cross-player history. A sword might have "dried blood
+  from a battle you weren't part of" or a key might "feel warm, as if
+  recently held by someone else."
+#}
+
+{% if currentThing and currentThing.name %}
+{% set history = getItemHistory(currentThing.name) %}
+{% if history and history.length > 0 %}
+<itemProvenance>
+This item has a history beyond what the current player knows:
+{% for entry in history %}
+  <historyEntry>{{ entry.summary }}</historyEntry>
+{% endfor %}
+When describing this item, you may hint at its history through physical details: wear patterns, residual warmth, faint smells, scratches or marks. Do NOT explain the history directly — let the player infer it. The item "remembers" in texture, not words.
+</itemProvenance>
+{% endif %}
+{% endif %}

@@ -1,0 +1,68 @@
+{#
+  Bonfires KG world context block.
+  Include this in any prompt template via: {% include "world-context.njk" %}
+
+  Injects cross-player world knowledge into AI prompts so NPCs remember
+  other players, regions reference shared lore, and the world feels alive.
+#}
+
+{# === Recent world events from other players === #}
+{% set worldEvents = getWorldEvents(5) %}
+{% if worldEvents and worldEvents.length > 0 %}
+<recentWorldEvents>
+These events happened recently in the shared world (other adventurers' actions that NPCs and the world would be aware of):
+{% for event in worldEvents %}
+  <worldEvent>{{ event.summary }}</worldEvent>
+{% endfor %}
+</recentWorldEvents>
+{% endif %}
+
+{# === Region lore from the knowledge graph === #}
+{% set lore = getRegionLore() %}
+{% if lore and lore.length > 0 %}
+<regionLore>
+Established lore about this area (reference but don't repeat verbatim):
+{% for item in lore %}
+  <loreEntry name="{{ item.name }}">{{ item.summary }}</loreEntry>
+{% endfor %}
+</regionLore>
+{% endif %}
+
+{# === Faction intelligence === #}
+{% set factions = getFactionIntel() %}
+{% if factions and factions.length > 0 %}
+<factionIntelligence>
+Known faction dynamics (use to inform NPC behavior and political context):
+{% for intel in factions %}
+  <intel>{{ intel.fact }}</intel>
+{% endfor %}
+</factionIntelligence>
+{% endif %}
+
+{# === Prophecies and omens === #}
+{% set prophecies = getProphecies() %}
+{% if prophecies and prophecies.length > 0 %}
+<propheciesAndOmens>
+Recurring patterns and prophecies detected across the world (use sparingly, as foreshadowing):
+{% for p in prophecies %}
+  <prophecy name="{{ p.name }}">{{ p.summary }}</prophecy>
+{% endfor %}
+</propheciesAndOmens>
+{% endif %}
+
+{# === World whispers (ambient hints from distant events) === #}
+{% set whispers = getWorldWhispers() %}
+{% if whispers and whispers.length > 0 %}
+<ambientWhispers>
+Subtle environmental cues the narrator can weave in (max one per response, only when natural):
+{% for w in whispers %}
+  <whisper>{{ w }}</whisper>
+{% endfor %}
+</ambientWhispers>
+{% endif %}
+
+{# === Convergence (dramatic tension from parallel player arcs) === #}
+{% set convergence = getConvergenceHints() %}
+{% if convergence %}
+<convergence>{{ convergence }}</convergence>
+{% endif %}

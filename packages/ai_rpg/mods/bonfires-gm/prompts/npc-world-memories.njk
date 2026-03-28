@@ -1,0 +1,29 @@
+{#
+  NPC cross-player memories.
+  Inject into NPC interaction/generation prompts.
+
+  Makes NPCs remember encounters with OTHER players — the blacksmith
+  recalls "a stranger asked about that sword last week" even though
+  it was a different player's session.
+#}
+
+{% if currentNpc and currentNpc.name %}
+{% set memories = getNpcMemories(currentNpc.name) %}
+{% if memories and memories.length > 0 %}
+<crossPlayerMemories>
+{{ currentNpc.name }} has had interactions with other adventurers that they remember:
+{% for mem in memories %}
+  <memory>{{ mem.summary }}</memory>
+{% endfor %}
+Note: {{ currentNpc.name }} may reference these memories naturally in conversation, as things they experienced. They don't know these were "other players" — just other people they met.
+</crossPlayerMemories>
+{% endif %}
+
+{# Déjà vu — echoes from other timelines #}
+{% set deja = getDejaVu(currentNpc.name) %}
+{% if deja %}
+<dejaVu>
+{{ currentNpc.name }} has a nagging sense of familiarity. Something about this conversation echoes a past encounter: "{{ deja }}". They may express this as an odd feeling of recognition, a half-remembered dream, or a sense that they've had this conversation before. Use subtly and only if it fits the moment.
+</dejaVu>
+{% endif %}
+{% endif %}

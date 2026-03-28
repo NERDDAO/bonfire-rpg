@@ -83,6 +83,52 @@ class GMClient {
       room_id: roomId,
     });
   }
+
+  // --- Knowledge Graph Queries (via Delve) ---
+
+  // Search the KG for entities, episodes, and relationships
+  async delveSearch(query, limit = 10) {
+    const url = `${this.baseUrl.replace(/\/game$/, '')}/delve`;
+    try {
+      const res = await axios.post(url, {
+        bonfire_id: this.bonfireId,
+        query,
+        limit,
+      }, { timeout: 15000 });
+      return res.data;
+    } catch (err) {
+      console.error(`[bonfires-gm] delve search failed: ${err.response?.data?.error || err.message}`);
+      return null;
+    }
+  }
+
+  // Get episodes for the bonfire (recent world events)
+  async getRecentEpisodes(limit = 20) {
+    const url = `${this.baseUrl.replace(/\/game$/, '')}/bonfires/${encodeURIComponent(this.bonfireId)}/episodes?limit=${limit}`;
+    try {
+      const res = await axios.get(url, { timeout: 10000 });
+      return res.data?.episodes || [];
+    } catch {
+      return [];
+    }
+  }
+
+  // Expand an entity to get its relationships
+  async expandEntity(entityUuid) {
+    const url = `${this.baseUrl.replace(/\/game$/, '')}/knowledge_graph/expand/entity`;
+    try {
+      const res = await axios.post(url, {
+        entity_uuid: entityUuid,
+        bonfire_id: this.bonfireId,
+        limit: 20,
+      }, { timeout: 10000 });
+      return res.data;
+    } catch {
+      return null;
+    }
+  }
 }
+
+module.exports = { GMClient };
 
 module.exports = { GMClient };

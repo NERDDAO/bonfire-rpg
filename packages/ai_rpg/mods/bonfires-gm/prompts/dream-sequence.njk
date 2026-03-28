@@ -1,0 +1,20 @@
+{#
+  Dream sequence injection.
+  When the player rests, sleeps, or is unconscious, the narrator
+  can weave in visions drawn from distant events in the shared world.
+
+  The dreams are deliberately cryptic — the player gets fragmentary
+  impressions of what other players are doing, filtered through
+  symbolism and atmosphere.
+#}
+
+{% set dreams = getDreamVisions() %}
+{% if dreams and dreams.length > 0 %}
+<dreamContent>
+The character's sleep is restless. Fragmentary visions surface from the shared world-dream:
+{% for vision in dreams %}
+  <vision>{{ vision }}</vision>
+{% endfor %}
+If narrating a rest/sleep scene, you MAY weave ONE of these visions into a brief, atmospheric dream sequence. Present it as a dream — disjointed, symbolic, unsettling or beautiful. The character wakes uncertain whether it meant anything. Do NOT explain the vision or make it literal. Do NOT use more than 2-3 sentences for the dream.
+</dreamContent>
+{% endif %}

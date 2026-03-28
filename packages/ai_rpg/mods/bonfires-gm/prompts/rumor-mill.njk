@@ -1,0 +1,19 @@
+{#
+  Rumor mill — what travelers, merchants, and NPCs are gossiping about.
+  Drawn from real events across all players' sessions.
+
+  Use in tavern scenes, market conversations, NPC small talk.
+  The rumors are TRUE (they happened to other players) but arrive
+  distorted through the grapevine.
+#}
+
+{% set rumors = getRumors() %}
+{% if rumors and rumors.length > 0 %}
+<rumorMill>
+Recent rumors circulating among travelers and merchants (these are based on real events elsewhere in the world — use 1-2 naturally in NPC dialogue when appropriate, especially in social settings like taverns, markets, or campfires):
+{% for rumor in rumors %}
+  <rumor>{{ rumor }}</rumor>
+{% endfor %}
+Present rumors as hearsay: "I heard that...", "They say...", "A merchant told me...". Distort slightly — the grapevine never gets it exactly right. NPCs may disagree about details.
+</rumorMill>
+{% endif %}
