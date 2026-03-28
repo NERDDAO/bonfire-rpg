@@ -1,0 +1,210 @@
+need_values:
+  small: 10
+  medium: 25
+  large: 70
+  all: 100
+need_bars:
+  food:
+    name: Food
+    description: Represents how well-fed the character is. If this reaches 0, the character may suffer penalties to health and attributes. Normal travel does not reduce this need.
+    player_only: true
+    icon: 🍖
+    color: "#FFA500"
+    related_attribute: constitution
+    min: 0
+    max: 100
+    initial: 100
+    change_per_turn: -1
+    relative_to_level: false
+    small_increase:
+      - light snack
+    medium_increase:
+      - hearty snack, light meal, small meal
+    large_increase:
+      - a normal meal
+      - eating an uncommon or better snack or light meal
+    fill_completely:
+      - feast, large meal, hearty meal
+      - eating a rare or better food item of any size
+      - eating until fully satisfied
+    small_decrease:
+      - light activity
+    large_decrease:
+      - strenuous activity
+      - vomiting
+    effect_thresholds:
+      0:
+        name: Starving
+        effect: -10% to health and attributes, chance of fainting
+      1:
+        name: Hungry
+        effect: -5% to health and attributes
+      25:
+        name: Peckish
+        effect: No effect
+      40:
+        name: Not Hungry
+        effect: No effect
+      60:
+        name: Satisfied
+        effect: Good mood
+      80:
+        name: Full
+        effect: Good mood, slight bonuses
+      100:
+        name: Stuffed
+        effect: Good mood, slight bonuses
+  stamina:
+    name: Stamina
+    description: Represents the character's minute-to-minute energy levels. If this reaches 0, it will be difficult for them to swing weapons or do other strenuous acts. Regenerates very quickly.
+    related_attribute: strength
+    player_only: false
+    color: "#33CC66"
+    icon: ⚡
+    min: 0
+    max: 100
+    initial: 100
+    change_per_turn: 5
+    relative_to_level: false
+    large_increase:
+      - non-strenuous activity (such as walking)
+      - light exercise
+      - being outside of battle
+    fill_completely:
+      - sitting down for a moment
+      - standing still for a moment
+    small_decrease:
+      - moderately strenuous activity
+      - swinging a weapon
+    large_decrease:
+      - strenuous activity
+      - swinging a heavy weapon
+    effect_thresholds:
+      0:
+        name: Breathless
+        effect: Slow, -4 circumstance penalty to physical actions
+      1:
+        name: Winded
+        effect: -2 circumstance penalty to physical actions
+      15:
+        name: Slightly winded
+        effect: No effect
+      25:
+        name: Fine
+        effect: No effect
+      70:
+        name: Energized
+        effect: Good mood, slight bonuses
+      100:
+        name: Fully Energized
+        effect: Good mood, slight bonuses
+  rest:
+    name: Rest
+    description: Represents how well-rested the character is. If this reaches 0, the character may suffer penalties to health and attributes. Normal travel does not reduce this need.
+    related_attribute: constitution
+    player_only: true
+    color: "#00BFFF"
+    icon: 🛌
+    min: 0
+    max: 100
+    initial: 100
+    change_per_turn: -1
+    relative_to_level: false
+    small_increase:
+      - short rest
+      - 2 or fewer hours of sleep
+      - 1-3 hours of low activity or rest
+      - took minor stimulant
+      - light meditation
+    large_increase:
+      - 2-5 hours of sleep
+      - 4+ hours of low activity or rest
+      - took strong stimulant
+    fill_completely:
+      - 6+ hours of sleep
+      - resting or sleeping until fully recovered
+      - took a powerful stimulant
+    small_decrease:
+      - strenuous activity
+    large_decrease:
+      - an all-nighter
+      - extreme magically or chemically induced tiredness
+    effect_thresholds:
+      0:
+        name: Exhausted
+        effect: -10% to health and attributes, chance of passing out
+      1:
+        name: Very Tired
+        effect: -5% to health and attributes
+      15:
+        name: Tired
+        effect: Reduced focus and minor penalties
+      25:
+        name: Weary
+        effect: No effect
+      40:
+        name: Rested
+        effect: No effect
+      70:
+        name: Well Rested
+        effect: Good mood, slight bonuses
+      100:
+        name: Fully Rested
+        effect: Good mood, slight bonuses
+  mana:
+    name: Mana
+    description: Represents the character's magical energy. Used for casting spells and magical abilities.
+    related_attribute: intelligence
+    player_only: false
+    color: "#8A2BE2"
+    icon: ✨
+    min: 0
+    max: 100
+    initial: 100
+    change_per_turn: +1
+    relative_to_level: false
+    small_increase:
+      - minor magical recharge
+      - used a small mana potion
+      - light rest
+      - meditated briefly
+      - nap
+    large_increase:
+      - major magical recharge
+      - used a large mana potion
+      - meditated in a magical area
+      - napped in a magical area
+      - restless night's sleep
+    fill_completely:
+      - full magical recharge
+      - used a powerful mana potion
+      - restful night's sleep
+      - resting, sleeping, or meditating until fully recovered
+    small_decrease:
+      - cast minor spell
+      - used a minor ability that would require some kind of magical energy (like alchemy, mana, psi powers, etc)
+    large_decrease:
+      - cast major spell
+      - used a major ability that would require some kind of magical energy (like alchemy, mana, psi powers, etc)
+    effect_thresholds:
+      0:
+        name: Depleted
+        effect: Cannot cast spells or use magical abilities, -10% to health and attributes
+      1:
+        name: Weak
+        effect: Limited spellcasting, -5% to health and attributes
+      25:
+        name: Low
+        effect: Reduced effectiveness of spells and abilities
+      40:
+        name: Moderate
+        effect: No effect
+      60:
+        name: High
+        effect: No effect
+      80:
+        name: Very High
+        effect: Slight bonuses to spell effectiveness
+      100:
+        name: Full Power
+        effect: Slight bonuses to spell effectiveness and health

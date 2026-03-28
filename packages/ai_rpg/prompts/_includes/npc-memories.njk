@@ -1,0 +1,229 @@
+<dispositionTypes>
+{% for disposition in dispositionTypes %}
+  <dispositionType>
+    <type>{{ disposition.name }}</type>
+    <description>{{ disposition.description }}</description>
+    <moveUpEvents>
+      {% for event in disposition.move_up %}
+      <event>{{ event }}</event>{% endfor %}
+    </moveUpEvents>
+    <moveDownEvents>
+      {% for event in disposition.move_down %}
+      <event>{{ event }}</event>{% endfor %}
+    </moveDownEvents>
+    <moveWayDownEvents>
+      {% for event in disposition.move_way_down %}<event>{{ event }}</event>
+      {% endfor %}
+    </moveWayDownEvents>
+  </dispositionType>
+{% endfor %}
+</dispositionTypes>
+<currentNpc>
+  <name>{{ currentNpc.name }}</name>
+  <description>{{ currentNpc.description }}</description>
+  <class>{{ currentNpc.class | default('Unknown') }}</class>
+  <race>{{ currentNpc.race | default('Unknown') }}</race>
+  <personality>
+    <type>{{ currentNpc.personality.type | default('Unknown', true) }}</type>
+    <traits>{{ currentNpc.personality.traits | default('None', true) }}</traits>
+    <goals>
+      {% for goal in currentNpc.personality.goals %}<goal>{{ goal }}</goal>
+      {% endfor %}
+    </goals>
+    <notes>{{ currentNpc.personality.notes | default('', true) }}</notes>
+  </personality>
+  <health>{{ currentNpc.health | default('unknown') }}</health>
+  <maxHealth>{{ currentNpc.maxHealth | default('unknown') }}</maxHealth>
+  <dispositionsTowardsPlayer>
+    {% for disposition in currentNpc.dispositionsTowardsPlayer %}
+    <dispositionTowardsPlayer>
+      <type>{{ disposition.type }}</type>
+      <intensity>{{ disposition.intensityName }}</intensity>
+    </dispositionTowardsPlayer>
+    {% endfor %}
+  </dispositionsTowardsPlayer>
+  <importantMemories>
+    {% for memory in currentNpc.importantMemories %}
+    <memory>{{ memory }}</memory>
+    {% endfor %}
+  </importantMemories>
+  <inventory>
+    {% for item in currentNpc.inventory %}<item>
+      <name>{{ item.name }}</name>
+      <equippedSlot>{{ item.equippedSlot | default('none') }}</equippedSlot>
+    </item>
+  {% endfor %}</inventory>
+  <skills>
+    {% for skill in currentNpc.skills %}{% if skill.value > 1 %}{{ skill.name }}, {% endif %}{% endfor %}
+  </skills>
+  <abilities>
+    {% for ability in currentNpc.abilities %}
+    <ability>
+      <name>{{ ability.name }}</name>
+      <description>{{ ability.description }}</description>
+      <type>{{ ability.type }}</type>
+      <level>{{ ability.level }}</level>
+    </ability>
+    {% endfor %}
+  </abilities>
+  <statusEffects>
+    {% for effect in currentNpc.statusEffects %}
+    <effect>
+      <description>{{ effect.description }}</description>
+      <duration>{{ effect.duration | default('unknown') }}</duration>
+    </effect>
+    {% endfor %}
+  </statusEffects>
+  <needBars>
+    {% for bar in currentNpc.needBars %}
+    <needBar>
+      <name>{{ bar.name }}</name>
+      <description>{{ bar.description }}</description>
+      <value>{{ bar.value | default('', true) }}</value>
+      <min>{{ bar.min | default('', true) }}</min>
+      <max>{{ bar.max | default('', true) }}</max>
+      <changePerTurn>{{ bar.changePerTurn | default(0) }}</changePerTurn>
+      <playerOnly>{{ bar.playerOnly | default(false) }}</playerOnly>
+      <relatedAttribute>{{ bar.relatedAttribute | default('', true) }}</relatedAttribute>
+      <currentThreshold>
+        <name>{% if bar.currentThreshold %}{{ bar.currentThreshold.name | default('Neutral') }}{% else %}Neutral{% endif %}</name>
+        <effect>{% if bar.currentThreshold %}{{ bar.currentThreshold.effect | default('No active effect') }}{% else %}No active effect{% endif %}</effect>
+        <value>{% if bar.currentThreshold %}{{ bar.currentThreshold.threshold | default('', true) }}{% else %}{% endif %}</value>
+      </currentThreshold>
+      <effectThresholds>
+        {% for threshold in bar.effectThresholds %}
+        <threshold>
+          <value>{{ threshold.threshold | default('', true) }}</value>
+          <name>{{ threshold.name | default('', true) }}</name>
+          <effect>{{ threshold.effect | default('', true) }}</effect>
+        </threshold>
+        {% endfor %}
+      </effectThresholds>
+      <increases>
+        <small>
+          {% for item in bar.increases.small %}<trigger>{{ item }}</trigger>{% endfor %}
+        </small>
+        <large>
+          {% for item in bar.increases.large %}<trigger>{{ item }}</trigger>{% endfor %}
+        </large>
+        <fill>
+          {% for item in bar.increases.fill %}<trigger>{{ item }}</trigger>{% endfor %}
+        </fill>
+      </increases>
+      <decreases>
+        <small>
+          {% for item in bar.decreases.small %}<trigger>{{ item }}</trigger>{% endfor %}
+        </small>
+        <large>
+          {% for item in bar.decreases.large %}<trigger>{{ item }}</trigger>{% endfor %}
+        </large>
+      </decreases>
+    </needBar>
+    {% endfor %}
+  </needBars>
+</currentNpc>
+<recentNpcHistory>
+  {%- if historyEntries is defined %}
+    {%- set rawHistoryEntries = historyEntries %}
+  {%- elif chatHistory is defined %}
+    {%- set rawHistoryEntries = chatHistory %}
+  {%- elif gameHistoryEntries is defined %}
+    {%- set rawHistoryEntries = gameHistoryEntries %}
+  {%- else %}
+    {%- set rawHistoryEntries = null %}
+  {%- endif %}
+  {%- if not rawHistoryEntries %}
+    <error>Missing history entries data for NPC history context.</error>
+  {%- elif rawHistoryEntries is string %}
+    <error>History entries data is a string; expected an iterable of entries.</error>
+  {%- elif not (rawHistoryEntries is iterable) %}
+    <error>History entries data is not iterable.</error>
+  {%- else %}
+    {%- set npcNameValue = currentNpc.name | default('') | trim %}
+    {%- if not npcNameValue %}
+      <error>currentNpc.name is required to filter history entries.</error>
+    {%- else %}
+      {%- set normalizedNpcName = npcNameValue | lower %}
+      {%- set maxEntries = 10 %}
+      {%- set entriesFound = 0 %}
+      {%- for entry in rawHistoryEntries | reverse -%}
+        {%- if entriesFound < maxEntries -%}
+          {%- if entry -%}
+            {%- set metadata = entry.metadata if entry.metadata is defined else null -%}
+            {%- set npcNamesList = metadata.npcNames if metadata and metadata.npcNames is defined else [] -%}
+            {%- if npcNamesList -%}
+              {%- set npcFound = false -%}
+              {%- for npcName in npcNamesList -%}
+                {%- if not npcFound and npcName -%}
+                  {%- set normalizedSeen = npcName | trim | lower -%}
+                  {%- if normalizedSeen == normalizedNpcName -%}
+                    {%- set npcFound = true -%}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- if npcFound -%}
+                {%- set rawText = '' -%}
+                {%- if entry.content is defined and entry.content -%}
+                  {%- set rawText = entry.content -%}
+                {%- elif entry.summary is defined and entry.summary -%}
+                  {%- set rawText = entry.summary -%}
+                {%- endif -%}
+                {%- set trimmedText = rawText | trim -%}
+                {%- if trimmedText -%}
+                  {%- set roleValue = entry.role if entry.role is defined and entry.role else 'system' -%}
+                  <historyEntry>
+                    <role>{{ roleValue | trim }}</role>
+                    <text>{{ trimmedText | e('xml') }}</text>
+                  </historyEntry>
+                  {%- set entriesFound = entriesFound + 1 -%}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endif -%}
+          {%- endif -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {%- if entriesFound == 0 -%}
+        <info>No recent history entries involving {{ npcNameValue }}.</info>
+      {%- endif -%}
+    {%- endif -%}
+  {%- endif -%}
+</recentNpcHistory>
+
+Step 1: Consider the NPC's current list of goals, and whether any of the recent events would cause them to add a new goal or change an existing goal. If so, update the NPC's goals accordingly. If not, return the existing goals unchanged. Omit anything that's outside of the recentNpcHistory block. If removing or completing one or more goals, always add enough new ones that they have a total of 4. Ensure that they have a mix of short- and long-term goals. Output in this format:
+
+<goalChanges>
+  <completed>[exact text of goal to mark completed, if any]</completed> <!-- Omit this line if no goals are completed -->
+  <remove>[exact text of goal to remove, if any]</remove> <!-- Omit this line if no goals are removed -->
+  <add>[exact text of goal to add, if any]</add> <!-- Omit this line if no goals are added -->
+</goalChanges>
+
+Step 2: Consider whether the NPC above would think of any of the above events as an important moment in their life. If so, create a concise memory of the event from the NPC's perspective, in the style of a diary entry or personal note. The memory should be no more than 2 sentences long. If none of the events would be significant enough to remember, return an empty element. Don't return a memory that's very similar to something already listed among their memories. Omit anything that's outside of the recentNpcHistory block. Output in this format:
+
+If no memories are generated, return:
+<memory></memory>
+
+Otherwise, return:
+<memory>[1-2 sentece memory as described above]</memory>
+
+Step 3: Based on the disposition types above, determine if any of the NPC's dispositions toward the player have changed as a result of the recent events. If so, specify which disposition changed, whether it moved up or down (or way down), and why. Omit any that remain unchanged. Omit anything that is outside of the recentNpcHistory block. Format it like this:
+
+If no dispositions changed, return:
+<dispositionsChangesTowardsPlayer></dispositionsChangesTowardsPlayer>
+
+Otherwise, return:
+<dispositionsChangesTowardsPlayer>
+  <dispositionChange>        
+    <type>disposition type from list.</type>
+    <reason>one sentence about why the disposition changed.</reason>
+    <intensity>one of: +3, +2, +1, -1, -2, -3, or -10 (in case of a "moves way down" event)</intensity>
+  </dispositionChange>
+  ... repeat for each disposition change for this NPC ...
+</dispositionsChangesTowardsPlayer>
+
+Your final response should be the combined output of Steps 1, 2, and 3, in that order, with no additional commentary or text, wrapped in a response tag, like this:
+
+<response>
+<goalChanges> ... </goalChanges>
+<memory> ... </memory>
+<dispositionsChangesTowardsPlayer> ... </dispositionsChangesTowardsPlayer>
+</response>

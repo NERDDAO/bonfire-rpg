@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<template>
+    <role>Item Image Generator</role>
+    
+    <systemPrompt>
+You are a specialized prompt generator for creating RPG inventory item images.
+
+    </systemPrompt>
+    
+    <generationPrompt>
+
+<context>
+<setting>
+    <name>{{ setting.name }}</name>
+    <description>{{ setting.description }}</description>
+    <genre>{{ setting.genre }}</genre>
+    <theme>{{ setting.theme }}</theme>
+    <magicLevel>{{ setting.magicLevel }}</magicLevel>
+    <techLevel>{{ setting.techLevel }}</techLevel>
+    <tone>{{ setting.tone }}</tone>
+</setting>
+<region>
+    <name>{{ regionName }}</name>
+    <description>{{ regionDescription }}</description>
+</region>
+<location>
+    <name>{{ locationName }}</name>
+    <description>{{ locationDescription }}</description>
+</location>
+</context>
+
+Item information:
+
+<item>
+    <name>{{ thingName }}</name>
+    <description>{{ thingDescription }}</description>
+    <type>{{ thingType }}</type>
+    <rarity>{{ thingRarity }}</rarity>
+</item>
+
+This is an ITEM - a portable object that could be carried, used, or interacted with by characters.
+Focus on creating a detailed, standalone object image showing the item's craftsmanship, materials, and condition.
+
+Visual Style for Items:
+- Close-up detailed view of the object
+- Clean, clear background that doesn't distract from the item
+- Professional lighting that shows craftsmanship and materials
+- Show wear, age, or magical properties if mentioned in description
+- No people or characters in the image, just the item itself
+
+Focus on the item's:
+- Materials and construction
+- Size and proportions
+- Condition and age
+- Any magical or special properties
+- Decorative elements or engravings
+- Functional aspects
+
+<task>Generate a detailed image prompt that captures the essence of the above item in 3-5 sentences of prose, maintaining consistency with the setting aesthetics while highlighting the unique characteristics described. The item should be shown on a simple grey background. Only describe what the item presently looks like. For instance, if the item has been rebuilt recently, do not mention what it looked like before it was rebuilt, or that it has been transformed in any way. Strictly describe the current appearance of the item. Avoid using metaphors. Avoid using the terms 'heart' and 'fist' unless specifically describing the body parts they refer to. Avoid referincing spider webs when referring to cracks or fractures.</task>
+
+{% if additionalInstructions %}Additional instructions from the user:
+{{ additionalInstructions }}{% endif %}
+    </generationPrompt>
+</template>

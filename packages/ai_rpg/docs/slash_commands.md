@@ -1,0 +1,62 @@
+Slash Commands Quick Guide
+
+- Lifecycle
+  - `server.js` initializes `SlashCommandRegistry` (loads `slashcommands/*.js`), then `/api/slash-command` in `api.js` invokes the matching module by name/alias.
+  - `public/js/chat.js` sends `/command arg=value` or `/command arg1 arg2` to `/api/slash-command`; replies are rendered as system messages.
+
+- Command shape
+  - Extend `SlashCommandBase` and export the class.
+  - Required statics: `name` (string), `description` (string), `args` (array), `execute(interaction, args)`.
+  - Optional: `aliases` array; `validateArgs` inherited default checks types against `args`.
+  - `args` entries: `{ name, type: 'string'|'integer'|'boolean', required: bool }`.
+  - `usage` is auto-built from `args` (shown by `/help` via `SlashCommandBase.listCommands()`).
+  - Per-command docs live in `docs/slashcommands/` (base class: `docs/slashcommands/SlashCommandBase.md`).
+
+- Arg parsing (server)
+  - Request body carries `args` (object) and `argsText` (raw string).
+  - Server tokenizes `argsText` left-to-right (quoted strings respected) to fill missing args in declaration order; types are coerced (integer/boolean/String).
+  - After filling, `validateArgs` runs; return 400 with `errors` if invalid.
+
+- Interaction API
+  - `interaction.user.id` is the caller’s userId (may be null).
+  - `interaction.argsText` is the raw argument text after the slash command name.
+  - `interaction.getChatHistory()` returns the live server `chatHistory` array.
+  - `interaction.getHistory(query, options?)` returns assistant prose-like history entries whose content matches all case-insensitive query terms; `query` may be a string or an array of strings (AND semantics for arrays). `options.startIndex` is 1-based, and `options.count` caps returned matches. Positional numeric args (`query, startIndex, count`) are also accepted.
+  - `interaction.performGameSave(saveName?)` is available when the save helper is in scope.
+  - `interaction.reply(payload)` collects responses; payload shape: `{ content: string, ephemeral?: boolean }`.
+  - Return value is ignored; send one or multiple replies; empty replies produce a generic success message client-side.
+
+- Best practices
+  - Fail loudly with clear errors (throw or reply with `ephemeral: true`).
+  - Normalize string inputs (trim/strip quotes) before lookups; validate types and existence.
+  - Reuse `slashcommand_utils/characterTargeting.js` for character-name parsing and alias-aware target resolution, including current-location ambiguity tie-breaking.
+  - Avoid silent fallbacks; if a helper is unavailable (e.g., `Globals.triggerRandomEvent`), throw with a precise reason.
+  - Keep commands side-effect scoped and synchronous when possible; mark `execute` async if awaiting I/O.
+  - Prefer existing helpers on `Globals`/models (e.g., `Location.get`, `playersByName`, `generateLevelUpAbilitiesForCharacter`).
+
+- Adding a new command (example skeleton)
+  ```js
+  const Globals = require('../Globals.js');
+  const SlashCommandBase = require('../SlashCommandBase.js');
+
+  class MyCommand extends SlashCommandBase {
+    static get name() { return 'mycmd'; }
+    static get aliases() { return ['mc']; }
+    static get description() { return 'Do a thing.'; }
+    static get args() { return [{ name: 'target', type: 'string', required: true }]; }
+
+    static async execute(interaction, args = {}) {
+      const target = (args.target || '').trim();
+      if (!target) throw new Error('Target is required.');
+      // ...do work...
+      await interaction.reply({ content: `Did the thing to ${target}.`, ephemeral: false });
+    }
+  }
+
+  module.exports = MyCommand;
+  ```
+  - Drop the file in `slashcommands/`; it will auto-register on startup (name + aliases).
+
+- Testing
+  - Use `/help` to confirm registration/usage text.
+  - Run the command in chat; verify expected replies and that invalid args return clear errors.

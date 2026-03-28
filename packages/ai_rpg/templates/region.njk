@@ -1,0 +1,64 @@
+### {{ region.name }}
+
+{% if region.parentRegionName %}
+- Parent Region: {{ region.parentRegionName }}
+{% endif %}
+{% if region.controllingFactionName %}
+- Controlling Faction: {{ region.controllingFactionName }}
+{% endif %}
+{% if region.averageLevel is defined and region.averageLevel is not none %}
+- Average Level: {{ region.averageLevel }}
+{% endif %}
+
+{% if region.shortDescription %}
+**Short Description**
+{{ region.shortDescription }}
+
+{% endif %}
+{% if region.description %}
+**Description**
+{{ region.description }}
+
+{% endif %}
+
+**Locations**
+{% if region.locationNames and region.locationNames.length %}
+{% for name in region.locationNames %}
+- {{ name }}
+{% endfor %}
+{% else %}
+- None
+{% endif %}
+
+**Connected Regions**
+{% if region.connectedRegionNames and region.connectedRegionNames.length %}
+{% for name in region.connectedRegionNames %}
+- {{ name }}
+{% endfor %}
+{% else %}
+- None
+{% endif %}
+
+**Secrets**
+{% if region.secrets and region.secrets.length %}
+{% for secret in region.secrets %}
+- {{ secret }}
+{% endfor %}
+{% else %}
+- None
+{% endif %}
+
+{% if region.weatherName %}
+**Current Weather**
+- {{ region.weatherName }}{% if region.weatherDescription %}: {{ region.weatherDescription }}{% endif %}
+
+{% endif %}
+
+**Status Effects**
+{% if region.statusEffects and region.statusEffects.length %}
+{% for effect in region.statusEffects %}
+- {{ effect.description }} (duration: {{ effect.duration | default('unknown', true) }})
+{% endfor %}
+{% else %}
+- None
+{% endif %}

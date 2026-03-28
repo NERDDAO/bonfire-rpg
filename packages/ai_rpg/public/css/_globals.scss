@@ -1,0 +1,73 @@
+// Variables
+$primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+$glass-bg: rgba(255, 255, 255, 0.1);
+$glass-bg-light: rgba(255, 255, 255, 0.2);
+$glass-bg-dark: rgba(255, 255, 255, 0.05);
+$white: #ffffff;
+$white-60: rgba(255, 255, 255, 0.6);
+$white-70: rgba(255, 255, 255, 0.7);
+$white-90: rgba(255, 255, 255, 0.9);
+$white-80: rgba(255, 255, 255, 0.8);
+$white-50: rgba(255, 255, 255, 0.5);
+$white-40: rgba(255, 255, 255, 0.4);
+$white-30: rgba(255, 255, 255, 0.3);
+$primary-blue: #667eea;
+$primary-blue-hover: #5a6fd8;
+$user-message-bg: rgba(100, 200, 255, 0.3);
+$npc-message-bg: rgba(120, 220, 140, 0.35);
+$error-bg: rgba(255, 100, 100, 0.3);
+$error-border: #ff6b6b;
+$scrollbar-track: rgba(255, 255, 255, 0.12);
+$scrollbar-thumb-base: rgba(102, 126, 234, 0.88);
+$scrollbar-thumb-hover: rgba(118, 75, 162, 0.9);
+$border-radius: 8px;
+$border-radius-lg: 15px;
+$border-radius-md: 12px;
+$border-radius-sm: 5px;
+$darkgrey: #444444;
+$font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+
+// Mixins
+@mixin glass-effect($bg: $glass-bg) {
+  background: $bg;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+}
+
+@mixin transition($property: all, $duration: 0.3s) {
+  transition: $property $duration ease;
+}
+
+@mixin themed-scrollbar($size: 1ex) {
+  scrollbar-width: thin;
+  scrollbar-color: $scrollbar-thumb-base $scrollbar-track;
+
+  &::-webkit-scrollbar {
+    width: $size;
+    height: $size;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: $scrollbar-track;
+    border-radius: 999px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, $scrollbar-thumb-base 0%, $scrollbar-thumb-hover 100%);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 999px;
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(
+      180deg,
+      rgba(120, 142, 238, 0.95) 0%,
+      rgba(134, 92, 186, 0.95) 100%
+    );
+  }
+}

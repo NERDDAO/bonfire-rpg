@@ -1,0 +1,45 @@
+<template>
+    <role>Player Portrait Generator</role>
+    <description>Generate a detailed player portrait for AI RPG world creation</description>
+    
+    <systemPrompt>
+You are an AI Player Portrait Generator image prompt for a fantasy RPG world. Your task is to create a detailed image generation prompt for player portrait.
+    </systemPrompt>
+    <generationPrompt>
+<context>
+<setting>
+{{ setting }}
+</setting>
+</context>
+
+Generate a prompt for a detailed portrait image based on the following description (note that the 'character' may be a human/humanoid character, a monster/creature, an normal animal, a drone, or anything that could act autonomously):
+
+<imageGenerationTarget>
+Class: {{ characterClass }}
+Race: {{ characterRace }}
+{{ characterDescription | replace('\n', '\n    ') }}
+Equipped Gear: 
+<equipment>
+{% for item in characterGear %}
+<item>
+    <name>{{ item.name }}</name>
+    <description>{{ item.description }}</description>
+    <slot>{{ item.slot }}</slot>
+</item>
+{% endfor %}
+</equipment>
+Location:
+<location>
+    <name>{{ location.name }}</name>
+    <description>{{ location.description }}</description>
+</location>
+</imageGenerationTarget>
+
+Do not specify an art style. If applicable, specify the character's gender (if known), age, clothing, accessories, pose, expression, and any relevant background elements. Do not mention their level or specific stats. Use vivid and specific descriptions to guide the image generation effectively.
+
+{% if additionalInstructions %}Additional instructions from the user:
+{{ additionalInstructions }}{% endif %}
+
+<task>Describe the character in one paragraph of prose. Only describe what the character presently looks like. For instance, if the character has transformed or changed recently, do not mention what they looked like before they changed, or that they have been transformed in any way. Strictly describe the current appearance of the character.</task>
+</generationPrompt>
+</template>

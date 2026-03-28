@@ -1,0 +1,922 @@
+const crypto = require('crypto');
+const yaml = require('js-yaml');
+const fs = require('fs');
+const path = require('path');
+
+/**
+ * SettingInfo class for AI RPG
+ * Represents custom game settings and world configurations
+ * Uses ES13 syntax with private fields and modern JavaScript features
+ */
+class SettingInfo {
+  // Private fields - encapsulated state
+  #id;
+  #name;
+  #description;
+  #theme;
+  #genre;
+  #startingLocationType;
+  #magicLevel;
+  #techLevel;
+  #tone;
+  #difficulty;
+  #currencyName;
+  #currencyNamePlural;
+  #currencyValueNotes;
+  #writingStyleNotes;
+  #baseContextPreamble;
+  #characterGenInstructions;
+  #imagePromptPrefixCharacter;
+  #imagePromptPrefixLocation;
+  #imagePromptPrefixItem;
+  #imagePromptPrefixScenery;
+  #playerStartingLevel;
+  #defaultStartingCurrency;
+  #defaultPlayerName;
+  #defaultPlayerDescription;
+  #defaultStartingLocation;
+  #defaultExistingSkills;
+  #defaultFactionCount;
+  #defaultFactions;
+  #createdAt;
+  #lastUpdated;
+  #availableClasses;
+  #availableRaces;
+  #customSlopWords;
+
+  // Static indexing maps
+  static #indexByID = new Map();
+  static #indexByName = new Map();
+  static #validFactionRelationStatuses = new Set(['allied', 'neutral', 'hostile', 'rival']);
+
+  static #normalizeExistingSkills(value) {
+    return SettingInfo.#normalizeStringList(value);
+  }
+
+  static #normalizeStringList(value) {
+    const entries = Array.isArray(value)
+      ? value
+      : (typeof value === 'string' ? value.split(/\r?\n/) : []);
+
+    return entries
+      .map(entry => (typeof entry === 'string' ? entry.trim() : ''))
+      .filter(entry => entry.length > 0);
+  }
+
+  static #normalizeFactionCount(value) {
+    if (value === null || value === undefined || value === '') {
+      return null;
+    }
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      throw new Error('defaultFactionCount must be a non-negative integer or null.');
+    }
+    return parsed;
+  }
+
+  static #generateSettingFactionId() {
+    const random = crypto.randomBytes(6).toString('hex');
+    return `setting_faction_${Date.now()}_${random}`;
+  }
+
+  static #normalizeFactionAssets(value, indexLabel = '') {
+    if (value === null || value === undefined) {
+      return [];
+    }
+    if (!Array.isArray(value)) {
+      throw new Error(`defaultFactions${indexLabel}.assets must be an array.`);
+    }
+
+    return value.map((asset, assetIndex) => {
+      if (!asset || typeof asset !== 'object' || Array.isArray(asset)) {
+        throw new Error(`defaultFactions${indexLabel}.assets[${assetIndex}] must be an object.`);
+      }
+      const name = typeof asset.name === 'string' ? asset.name.trim() : '';
+      if (!name) {
+        throw new Error(`defaultFactions${indexLabel}.assets[${assetIndex}].name is required.`);
+      }
+      const type = typeof asset.type === 'string' ? asset.type.trim() : '';
+      const description = typeof asset.description === 'string' ? asset.description.trim() : '';
+      const normalized = { name };
+      if (type) normalized.type = type;
+      if (description) normalized.description = description;
+      return normalized;
+    });
+  }
+
+  static #normalizeFactionTiers(value, indexLabel = '') {
+    if (value === null || value === undefined) {
+      return [];
+    }
+    if (!Array.isArray(value)) {
+      throw new Error(`defaultFactions${indexLabel}.reputationTiers must be an array.`);
+    }
+
+    const normalized = value.map((tier, tierIndex) => {
+      if (!tier || typeof tier !== 'object' || Array.isArray(tier)) {
+        throw new Error(`defaultFactions${indexLabel}.reputationTiers[${tierIndex}] must be an object.`);
+      }
+      const threshold = Number(tier.threshold);
+      if (!Number.isFinite(threshold)) {
+        throw new Error(`defaultFactions${indexLabel}.reputationTiers[${tierIndex}].threshold must be numeric.`);
+      }
+      const label = typeof tier.label === 'string' ? tier.label.trim() : '';
+      const perks = SettingInfo.#normalizeStringList(tier.perks || []);
+      const penalties = SettingInfo.#normalizeStringList(tier.penalties || []);
+      return {
+        threshold,
+        label,
+        perks,
+        penalties
+      };
+    });
+
+    normalized.sort((a, b) => a.threshold - b.threshold);
+    return normalized;
+  }
+
+  static #normalizeFactionRelations(value, { validFactionIds = null, currentFactionId = null, indexLabel = '' } = {}) {
+    if (value === null || value === undefined) {
+      return {};
+    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error(`defaultFactions${indexLabel}.relations must be an object keyed by faction id.`);
+    }
+
+    const normalized = {};
+    for (const [rawTargetId, relation] of Object.entries(value)) {
+      const targetId = typeof rawTargetId === 'string' ? rawTargetId.trim() : '';
+      if (!targetId) {
+        throw new Error(`defaultFactions${indexLabel}.relations contains an empty target id.`);
+      }
+      if (currentFactionId && targetId === currentFactionId) {
+        throw new Error(`defaultFactions${indexLabel}.relations cannot target itself (${currentFactionId}).`);
+      }
+      if (validFactionIds instanceof Set && !validFactionIds.has(targetId)) {
+        throw new Error(`defaultFactions${indexLabel}.relations references unknown faction id "${targetId}".`);
+      }
+      if (!relation || typeof relation !== 'object' || Array.isArray(relation)) {
+        throw new Error(`defaultFactions${indexLabel}.relations["${targetId}"] must be an object.`);
+      }
+      const status = typeof relation.status === 'string' ? relation.status.trim().toLowerCase() : '';
+      if (!status) {
+        throw new Error(`defaultFactions${indexLabel}.relations["${targetId}"].status is required.`);
+      }
+      if (!SettingInfo.#validFactionRelationStatuses.has(status)) {
+        throw new Error(`defaultFactions${indexLabel}.relations["${targetId}"].status must be allied, neutral, hostile, or rival.`);
+      }
+      const notes = typeof relation.notes === 'string' ? relation.notes.trim() : '';
+      if (!notes) {
+        throw new Error(`defaultFactions${indexLabel}.relations["${targetId}"].notes is required.`);
+      }
+      normalized[targetId] = { status, notes };
+    }
+
+    return normalized;
+  }
+
+  static #normalizeSingleFaction(value, index) {
+    const indexLabel = `[${index}]`;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error(`defaultFactions${indexLabel} must be an object.`);
+    }
+
+    const idSource = typeof value.id === 'string' ? value.id.trim() : '';
+    const id = idSource || SettingInfo.#generateSettingFactionId();
+    const name = typeof value.name === 'string' ? value.name.trim() : '';
+    if (!name) {
+      throw new Error(`defaultFactions${indexLabel}.name is required.`);
+    }
+    if (name.toLowerCase() === 'none') {
+      throw new Error(`defaultFactions${indexLabel}.name cannot be "None".`);
+    }
+
+    const shortDescription = typeof value.shortDescription === 'string' && value.shortDescription.trim()
+      ? value.shortDescription.trim()
+      : null;
+    const description = typeof value.description === 'string' && value.description.trim()
+      ? value.description.trim()
+      : null;
+    const homeRegionName = typeof value.homeRegionName === 'string' && value.homeRegionName.trim()
+      ? value.homeRegionName.trim()
+      : null;
+
+    return {
+      id,
+      name,
+      shortDescription,
+      description,
+      homeRegionName,
+      tags: SettingInfo.#normalizeStringList(value.tags || []),
+      goals: SettingInfo.#normalizeStringList(value.goals || []),
+      assets: SettingInfo.#normalizeFactionAssets(value.assets, indexLabel),
+      relations: SettingInfo.#normalizeFactionRelations(value.relations || {}, { indexLabel }),
+      reputationTiers: SettingInfo.#normalizeFactionTiers(value.reputationTiers || [], indexLabel)
+    };
+  }
+
+  static #normalizeFactions(value) {
+    if (value === null || value === undefined || value === '') {
+      return [];
+    }
+
+    let entries = value;
+    if (typeof entries === 'string') {
+      const trimmed = entries.trim();
+      if (!trimmed) {
+        return [];
+      }
+      try {
+        entries = JSON.parse(trimmed);
+      } catch (error) {
+        throw new Error(`defaultFactions must be valid JSON when passed as a string: ${error.message}`);
+      }
+    }
+
+    if (!Array.isArray(entries)) {
+      throw new Error('defaultFactions must be an array.');
+    }
+
+    const normalized = entries.map((entry, index) => SettingInfo.#normalizeSingleFaction(entry, index));
+    const idSet = new Set();
+    const nameSet = new Set();
+    for (const faction of normalized) {
+      if (idSet.has(faction.id)) {
+        throw new Error(`defaultFactions contains duplicate id "${faction.id}".`);
+      }
+      idSet.add(faction.id);
+      const nameKey = faction.name.toLowerCase();
+      if (nameSet.has(nameKey)) {
+        throw new Error(`defaultFactions contains duplicate name "${faction.name}".`);
+      }
+      nameSet.add(nameKey);
+    }
+
+    return normalized.map((faction, index) => ({
+      ...faction,
+      relations: SettingInfo.#normalizeFactionRelations(faction.relations || {}, {
+        validFactionIds: idSet,
+        currentFactionId: faction.id,
+        indexLabel: `[${index}]`
+      })
+    }));
+  }
+
+  // Static private method for generating unique IDs
+  static #generateId() {
+    const timestamp = Date.now();
+    const random = crypto.randomBytes(6).toString('hex');
+    return `setting_${timestamp}_${random}`;
+  }
+
+  /**
+   * Creates a new SettingInfo instance
+   * @param {Object} options - Setting configuration
+   * @param {string} options.name - Name of the setting
+   * @param {string} [options.description] - Description of the setting
+   * @param {string} [options.theme] - Theme of the world
+   * @param {string} [options.genre] - Genre of gameplay
+   * @param {string} [options.startingLocationType] - Type of starting location
+   * @param {string} [options.magicLevel] - Level of magic prevalence
+   * @param {string} [options.techLevel] - Technological advancement level
+   * @param {string} [options.tone] - Emotional tone and atmosphere
+   * @param {string} [options.difficulty] - Challenge level
+   * @param {string} [options.id] - Custom ID (if not provided, one will be generated)
+   */
+  constructor(options = {}) {
+    // Validate required parameters
+    if (!options.name || typeof options.name !== 'string') {
+      throw new Error('Setting name is required and must be a string');
+    }
+
+    // Initialize private fields
+    this.#id = options.id || SettingInfo.#generateId();
+    this.#name = options.name;
+    this.#description = options.description || '';
+
+    // Initialize setting properties from options
+    this.#theme = options.theme || '';
+    this.#genre = options.genre || '';
+    this.#startingLocationType = options.startingLocationType || '';
+    this.#magicLevel = options.magicLevel || '';
+    this.#techLevel = options.techLevel || '';
+    this.#tone = options.tone || '';
+    this.#difficulty = options.difficulty || '';
+    this.#currencyName = typeof options.currencyName === 'string' ? options.currencyName : '';
+    this.#currencyNamePlural = typeof options.currencyNamePlural === 'string' ? options.currencyNamePlural : '';
+    this.#currencyValueNotes = typeof options.currencyValueNotes === 'string'
+      ? options.currencyValueNotes.replace(/\r\n/g, '\n')
+      : '';
+    const writingStyleSource = options.writingStyleNotes ?? options.styleNotes;
+    this.#writingStyleNotes = typeof writingStyleSource === 'string'
+      ? writingStyleSource.replace(/\r\n/g, '\n')
+      : '';
+    this.#baseContextPreamble = typeof options.baseContextPreamble === 'string'
+      ? options.baseContextPreamble.replace(/\r\n/g, '\n')
+      : '';
+    this.#characterGenInstructions = typeof options.characterGenInstructions === 'string'
+      ? options.characterGenInstructions.replace(/\r\n/g, '\n')
+      : '';
+    this.#imagePromptPrefixCharacter = typeof options.imagePromptPrefixCharacter === 'string'
+      ? options.imagePromptPrefixCharacter.replace(/\r\n/g, '\n')
+      : '';
+    this.#imagePromptPrefixLocation = typeof options.imagePromptPrefixLocation === 'string'
+      ? options.imagePromptPrefixLocation.replace(/\r\n/g, '\n')
+      : '';
+    this.#imagePromptPrefixItem = typeof options.imagePromptPrefixItem === 'string'
+      ? options.imagePromptPrefixItem.replace(/\r\n/g, '\n')
+      : '';
+    this.#imagePromptPrefixScenery = typeof options.imagePromptPrefixScenery === 'string'
+      ? options.imagePromptPrefixScenery.replace(/\r\n/g, '\n')
+      : '';
+
+    // Additional properties
+    this.#playerStartingLevel = Math.max(1, options.playerStartingLevel || 1);
+    const parsedDefaultCurrency = Number.parseInt(options.defaultStartingCurrency, 10);
+    this.#defaultStartingCurrency = Number.isFinite(parsedDefaultCurrency)
+      ? Math.max(0, parsedDefaultCurrency)
+      : 0;
+    this.#defaultPlayerName = typeof options.defaultPlayerName === 'string' ? options.defaultPlayerName : '';
+    this.#defaultPlayerDescription = typeof options.defaultPlayerDescription === 'string' ? options.defaultPlayerDescription : '';
+    this.#defaultStartingLocation = typeof options.defaultStartingLocation === 'string' ? options.defaultStartingLocation : '';
+    this.#defaultExistingSkills = SettingInfo.#normalizeExistingSkills(options.defaultExistingSkills);
+    this.#defaultFactionCount = SettingInfo.#normalizeFactionCount(options.defaultFactionCount);
+    this.#defaultFactions = SettingInfo.#normalizeFactions(options.defaultFactions);
+    this.#availableClasses = SettingInfo.#normalizeStringList(options.availableClasses);
+    this.#availableRaces = SettingInfo.#normalizeStringList(options.availableRaces);
+    this.#customSlopWords = SettingInfo.#normalizeStringList(options.customSlopWords);
+
+    // Timestamps
+    this.#createdAt = new Date().toISOString();
+    this.#lastUpdated = this.#createdAt;
+
+    // Add to static indexes
+    SettingInfo.#indexByID.set(this.#id, this);
+    SettingInfo.#indexByName.set(this.#name.toLowerCase(), this);
+  }
+
+  // Update last modified timestamp
+  #updateTimestamp() {
+    this.#lastUpdated = new Date().toISOString();
+  }
+
+  // Getters for all properties
+  get id() { return this.#id; }
+  get name() { return this.#name; }
+  get description() { return this.#description; }
+  get theme() { return this.#theme; }
+  get genre() { return this.#genre; }
+  get startingLocationType() { return this.#startingLocationType; }
+  get magicLevel() { return this.#magicLevel; }
+  get techLevel() { return this.#techLevel; }
+  get tone() { return this.#tone; }
+  get difficulty() { return this.#difficulty; }
+  get currencyName() { return this.#currencyName; }
+  get currencyNamePlural() { return this.#currencyNamePlural; }
+  get currencyValueNotes() { return this.#currencyValueNotes; }
+  get writingStyleNotes() { return this.#writingStyleNotes; }
+  get baseContextPreamble() { return this.#baseContextPreamble; }
+  get characterGenInstructions() { return this.#characterGenInstructions; }
+  get imagePromptPrefixCharacter() { return this.#imagePromptPrefixCharacter; }
+  get imagePromptPrefixLocation() { return this.#imagePromptPrefixLocation; }
+  get imagePromptPrefixItem() { return this.#imagePromptPrefixItem; }
+  get imagePromptPrefixScenery() { return this.#imagePromptPrefixScenery; }
+  get playerStartingLevel() { return this.#playerStartingLevel; }
+  get defaultStartingCurrency() { return this.#defaultStartingCurrency; }
+  get defaultPlayerName() { return this.#defaultPlayerName; }
+  get defaultPlayerDescription() { return this.#defaultPlayerDescription; }
+  get defaultStartingLocation() { return this.#defaultStartingLocation; }
+  get defaultExistingSkills() { return [...this.#defaultExistingSkills]; }
+  get defaultFactionCount() { return this.#defaultFactionCount; }
+  get defaultFactions() { return this.#defaultFactions.map(faction => JSON.parse(JSON.stringify(faction))); }
+  get createdAt() { return this.#createdAt; }
+  get lastUpdated() { return this.#lastUpdated; }
+  get availableClasses() { return [...this.#availableClasses]; }
+  get availableRaces() { return [...this.#availableRaces]; }
+  get customSlopWords() { return [...this.#customSlopWords]; }
+
+  // Setters with validation
+  set name(value) {
+    if (!value || typeof value !== 'string') {
+      throw new Error('Setting name must be a non-empty string');
+    }
+
+    // Remove from old name index
+    SettingInfo.#indexByName.delete(this.#name.toLowerCase());
+
+    this.#name = value;
+    this.#updateTimestamp();
+
+    // Add to new name index
+    SettingInfo.#indexByName.set(this.#name.toLowerCase(), this);
+  }
+
+  set description(value) {
+    this.#description = value || '';
+    this.#updateTimestamp();
+  }
+
+  set theme(value) {
+    this.#theme = value;
+    this.#updateTimestamp();
+  }
+
+  set genre(value) {
+    this.#genre = value;
+    this.#updateTimestamp();
+  }
+
+  set startingLocationType(value) {
+    this.#startingLocationType = value;
+    this.#updateTimestamp();
+  }
+
+  set magicLevel(value) {
+    this.#magicLevel = value;
+    this.#updateTimestamp();
+  }
+
+  set techLevel(value) {
+    this.#techLevel = value;
+    this.#updateTimestamp();
+  }
+
+  set tone(value) {
+    this.#tone = value;
+    this.#updateTimestamp();
+  }
+
+  set difficulty(value) {
+    this.#difficulty = value;
+    this.#updateTimestamp();
+  }
+
+  set currencyName(value) {
+    this.#currencyName = typeof value === 'string' ? value : '';
+    this.#updateTimestamp();
+  }
+
+  set currencyNamePlural(value) {
+    this.#currencyNamePlural = typeof value === 'string' ? value : '';
+    this.#updateTimestamp();
+  }
+
+  set currencyValueNotes(value) {
+    this.#currencyValueNotes = typeof value === 'string'
+      ? value.replace(/\r\n/g, '\n')
+      : '';
+    this.#updateTimestamp();
+  }
+
+  set writingStyleNotes(value) {
+    this.#writingStyleNotes = typeof value === 'string'
+      ? value.replace(/\r\n/g, '\n')
+      : '';
+    this.#updateTimestamp();
+  }
+
+  set baseContextPreamble(value) {
+    this.#baseContextPreamble = typeof value === 'string'
+      ? value.replace(/\r\n/g, '\n')
+      : '';
+    this.#updateTimestamp();
+  }
+
+  set characterGenInstructions(value) {
+    this.#characterGenInstructions = typeof value === 'string'
+      ? value.replace(/\r\n/g, '\n')
+      : '';
+    this.#updateTimestamp();
+  }
+
+  set imagePromptPrefixCharacter(value) {
+    this.#imagePromptPrefixCharacter = typeof value === 'string'
+      ? value.replace(/\r\n/g, '\n')
+      : '';
+    this.#updateTimestamp();
+  }
+
+  set imagePromptPrefixLocation(value) {
+    this.#imagePromptPrefixLocation = typeof value === 'string'
+      ? value.replace(/\r\n/g, '\n')
+      : '';
+    this.#updateTimestamp();
+  }
+
+  set imagePromptPrefixItem(value) {
+    this.#imagePromptPrefixItem = typeof value === 'string'
+      ? value.replace(/\r\n/g, '\n')
+      : '';
+    this.#updateTimestamp();
+  }
+
+  set imagePromptPrefixScenery(value) {
+    this.#imagePromptPrefixScenery = typeof value === 'string'
+      ? value.replace(/\r\n/g, '\n')
+      : '';
+    this.#updateTimestamp();
+  }
+
+  set playerStartingLevel(value) {
+    this.#playerStartingLevel = Math.max(1, parseInt(value) || 1);
+    this.#updateTimestamp();
+  }
+
+  set defaultStartingCurrency(value) {
+    const parsed = Number.parseInt(value, 10);
+    this.#defaultStartingCurrency = Number.isFinite(parsed)
+      ? Math.max(0, parsed)
+      : 0;
+    this.#updateTimestamp();
+  }
+
+  set defaultPlayerName(value) {
+    this.#defaultPlayerName = typeof value === 'string' ? value : '';
+    this.#updateTimestamp();
+  }
+
+  set defaultPlayerDescription(value) {
+    this.#defaultPlayerDescription = typeof value === 'string' ? value : '';
+    this.#updateTimestamp();
+  }
+
+  set defaultStartingLocation(value) {
+    this.#defaultStartingLocation = typeof value === 'string' ? value : '';
+    this.#updateTimestamp();
+  }
+
+  set defaultExistingSkills(value) {
+    this.#defaultExistingSkills = SettingInfo.#normalizeExistingSkills(value);
+    this.#updateTimestamp();
+  }
+
+  set defaultFactionCount(value) {
+    this.#defaultFactionCount = SettingInfo.#normalizeFactionCount(value);
+    this.#updateTimestamp();
+  }
+
+  set defaultFactions(value) {
+    this.#defaultFactions = SettingInfo.#normalizeFactions(value);
+    this.#updateTimestamp();
+  }
+
+  set availableClasses(value) {
+    this.#availableClasses = SettingInfo.#normalizeStringList(value);
+    this.#updateTimestamp();
+  }
+
+  set availableRaces(value) {
+    this.#availableRaces = SettingInfo.#normalizeStringList(value);
+    this.#updateTimestamp();
+  }
+
+  set customSlopWords(value) {
+    this.#customSlopWords = SettingInfo.#normalizeStringList(value);
+    this.#updateTimestamp();
+  }
+
+  // Static methods for CRUD operations
+  static create(options) {
+    return new SettingInfo(options);
+  }
+
+  static getById(id) {
+    return SettingInfo.#indexByID.get(id) || null;
+  }
+
+  static getByName(name) {
+    return SettingInfo.#indexByName.get(name.toLowerCase()) || null;
+  }
+
+  static getAll() {
+    return Array.from(SettingInfo.#indexByID.values());
+  }
+
+  static exists(id) {
+    return SettingInfo.#indexByID.has(id);
+  }
+
+  static delete(id) {
+    const setting = SettingInfo.#indexByID.get(id);
+    if (setting) {
+      SettingInfo.#indexByID.delete(id);
+      SettingInfo.#indexByName.delete(setting.name.toLowerCase());
+      return true;
+    }
+    return false;
+  }
+
+  static count() {
+    return SettingInfo.#indexByID.size;
+  }
+
+  static clear() {
+    SettingInfo.#indexByID.clear();
+    SettingInfo.#indexByName.clear();
+  }
+
+
+  // Instance methods
+  update(updates = {}) {
+    // Update properties safely using defined setters
+    Object.entries(updates).forEach(([key, value]) => {
+      if (key === 'id' || key === 'createdAt' || key === 'lastUpdated') {
+        return;
+      }
+
+      if (typeof value === 'undefined') {
+        return;
+      }
+
+      if (key in this) {
+        try {
+          this[key] = value;
+        } catch (error) {
+          console.warn(`Failed to update ${key}:`, error.message);
+        }
+      }
+    });
+
+    return this;
+  }
+
+  // Get all properties as a plain object
+  getStatus() {
+    return {
+      id: this.#id,
+      name: this.#name,
+      description: this.#description,
+      theme: this.#theme,
+      genre: this.#genre,
+      startingLocationType: this.#startingLocationType,
+      magicLevel: this.#magicLevel,
+      techLevel: this.#techLevel,
+      tone: this.#tone,
+      difficulty: this.#difficulty,
+      currencyName: this.#currencyName,
+      currencyNamePlural: this.#currencyNamePlural,
+      currencyValueNotes: this.#currencyValueNotes,
+      writingStyleNotes: this.#writingStyleNotes,
+      baseContextPreamble: this.#baseContextPreamble,
+      characterGenInstructions: this.#characterGenInstructions,
+      imagePromptPrefixCharacter: this.#imagePromptPrefixCharacter,
+      imagePromptPrefixLocation: this.#imagePromptPrefixLocation,
+      imagePromptPrefixItem: this.#imagePromptPrefixItem,
+      imagePromptPrefixScenery: this.#imagePromptPrefixScenery,
+      playerStartingLevel: this.#playerStartingLevel,
+      defaultStartingCurrency: this.#defaultStartingCurrency,
+      defaultPlayerName: this.#defaultPlayerName,
+      defaultPlayerDescription: this.#defaultPlayerDescription,
+      defaultStartingLocation: this.#defaultStartingLocation,
+      defaultExistingSkills: [...this.#defaultExistingSkills],
+      defaultFactionCount: this.#defaultFactionCount,
+      defaultFactions: this.#defaultFactions.map(faction => JSON.parse(JSON.stringify(faction))),
+      availableClasses: [...this.#availableClasses],
+      availableRaces: [...this.#availableRaces],
+      customSlopWords: [...this.#customSlopWords],
+      createdAt: this.#createdAt,
+      lastUpdated: this.#lastUpdated
+    };
+  }
+
+  // Serialize for JSON storage
+  toJSON() {
+    return this.getStatus();
+  }
+
+  // Create from JSON data
+  static fromJSON(data) {
+    return new SettingInfo(data);
+  }
+
+  // Clone the setting
+  clone(newName = null) {
+    const data = { ...this.getStatus() };
+    delete data.id;
+    delete data.createdAt;
+    delete data.lastUpdated;
+
+    if (newName) {
+      data.name = newName;
+    } else {
+      data.name = `${data.name} (Copy)`;
+    }
+
+    return new SettingInfo(data);
+  }
+
+  // Generate prompt variables for template system
+  getPromptVariables() {
+    return {
+      theme: this.#theme,
+      genre: this.#genre,
+      startingLocationType: this.#startingLocationType,
+      magicLevel: this.#magicLevel,
+      techLevel: this.#techLevel,
+      tone: this.#tone,
+      difficulty: this.#difficulty,
+      currencyName: this.#currencyName,
+      currencyNamePlural: this.#currencyNamePlural,
+      currencyValueNotes: this.#currencyValueNotes,
+      writingStyleNotes: this.#writingStyleNotes,
+      baseContextPreamble: this.#baseContextPreamble,
+      characterGenInstructions: this.#characterGenInstructions,
+      imagePromptPrefixCharacter: this.#imagePromptPrefixCharacter,
+      imagePromptPrefixLocation: this.#imagePromptPrefixLocation,
+      imagePromptPrefixItem: this.#imagePromptPrefixItem,
+      imagePromptPrefixScenery: this.#imagePromptPrefixScenery,
+      playerStartingLevel: this.#playerStartingLevel,
+      defaultStartingCurrency: this.#defaultStartingCurrency,
+      settingName: this.#name,
+      settingDescription: this.#description,
+      availableClasses: [...this.#availableClasses],
+      availableRaces: [...this.#availableRaces],
+      customSlopWords: [...this.#customSlopWords]
+    };
+  }
+
+  // String representation
+  toString() {
+    return `${this.#name} (${this.#theme}/${this.#genre})`;
+  }
+
+  // ==================== FILE PERSISTENCE METHODS ====================
+
+  // Save setting to file
+  save(saveDir = null) {
+    try {
+      const dir = saveDir || path.join(__dirname, 'saves', 'settings');
+
+      // Create directory if it doesn't exist
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      const filename = `${this.#name.replace(/[^a-zA-Z0-9]/g, '_')}_${this.#id}.json`;
+      const filepath = path.join(dir, filename);
+
+      fs.writeFileSync(filepath, JSON.stringify(this.toJSON(), null, 2));
+      return filepath;
+    } catch (error) {
+      throw new Error(`Failed to save setting: ${error.message}`);
+    }
+  }
+
+  // Load setting from file
+  static load(filepath) {
+    try {
+      const data = JSON.parse(fs.readFileSync(filepath, 'utf8'));
+      return SettingInfo.fromJSON(data);
+    } catch (error) {
+      throw new Error(`Failed to load setting from ${filepath}: ${error.message}`);
+    }
+  }
+
+  // Save all settings to directory
+  static saveAll(saveDir = null) {
+    try {
+      const dir = saveDir || path.join(__dirname, 'saves', 'settings');
+
+      // Create directory if it doesn't exist
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      const allSettings = SettingInfo.getAll();
+      const savedFiles = [];
+
+      // Save individual setting files
+      for (const setting of allSettings) {
+        const filepath = setting.save(dir);
+        savedFiles.push(filepath);
+      }
+
+      return {
+        count: allSettings.length,
+        files: savedFiles,
+        directory: dir
+      };
+    } catch (error) {
+      throw new Error(`Failed to save all settings: ${error.message}`);
+    }
+  }
+
+  // Load all settings from directory
+  static loadAll(saveDir = null) {
+    try {
+      const dir = saveDir || path.join(__dirname, 'saves', 'settings');
+
+      if (!fs.existsSync(dir)) {
+        return { count: 0, settings: [] };
+      }
+
+      // Scan directory for individual setting files
+      const files = fs.readdirSync(dir).filter(f => f.endsWith('.json') && f !== 'settings_index.json');
+
+      // Clear existing settings
+      SettingInfo.clear();
+
+      const loadedSettings = [];
+      for (const filename of files) {
+        try {
+          const filepath = path.join(dir, filename);
+          const setting = SettingInfo.load(filepath);
+          loadedSettings.push(setting);
+        } catch (error) {
+          console.warn(`Failed to load setting from ${filename}:`, error.message);
+        }
+      }
+
+      return {
+        count: loadedSettings.length,
+        settings: loadedSettings,
+        directory: dir,
+        files: files.map(filename => path.join(dir, filename))
+      };
+    } catch (error) {
+      throw new Error(`Failed to load all settings: ${error.message}`);
+    }
+  }
+
+  // List available setting files
+  static listSavedSettings(saveDir = null) {
+    try {
+      const dir = saveDir || path.join(__dirname, 'saves', 'settings');
+
+      if (!fs.existsSync(dir)) {
+        return [];
+      }
+
+      const files = fs.readdirSync(dir).filter(f => f.endsWith('.json') && f !== 'settings_index.json');
+      return files.map(filename => {
+        const filepath = path.join(dir, filename);
+        const stats = fs.statSync(filepath);
+
+        // Try to read basic info without fully loading
+        try {
+          const data = JSON.parse(fs.readFileSync(filepath, 'utf8'));
+          return {
+            filename,
+            filepath,
+            name: data.name || 'Unknown',
+            theme: data.theme || 'Unknown',
+            genre: data.genre || 'Unknown',
+            lastModified: stats.mtime,
+            size: stats.size
+          };
+        } catch (error) {
+          return {
+            filename,
+            filepath,
+            name: 'Corrupted File',
+            theme: 'Unknown',
+            genre: 'Unknown',
+            lastModified: stats.mtime,
+            size: stats.size,
+            error: error.message
+          };
+        }
+      });
+    } catch (error) {
+      throw new Error(`Failed to list saved settings: ${error.message}`);
+    }
+  }
+
+  static deleteSavedFilesById(id, saveDir = null) {
+    const normalizedId = typeof id === 'string' ? id.trim() : '';
+    if (!normalizedId) {
+      throw new Error('Setting id is required to delete saved setting files');
+    }
+
+    const dir = saveDir || path.join(__dirname, 'saves', 'settings');
+    if (!fs.existsSync(dir)) {
+      return { count: 0, files: [] };
+    }
+
+    const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const idSuffixPattern = new RegExp(`_${escapeRegex(normalizedId)}\\.json$`);
+    const matchingFiles = fs.readdirSync(dir)
+      .filter(filename => filename.endsWith('.json') && idSuffixPattern.test(filename));
+
+    const deletedFiles = [];
+    for (const filename of matchingFiles) {
+      const filepath = path.join(dir, filename);
+      fs.unlinkSync(filepath);
+      deletedFiles.push(filepath);
+    }
+
+    return { count: deletedFiles.length, files: deletedFiles };
+  }
+
+  // Delete setting file
+  deleteSavedFile(saveDir = null) {
+    try {
+      const result = SettingInfo.deleteSavedFilesById(this.#id, saveDir);
+      return result.count > 0;
+    } catch (error) {
+      throw new Error(`Failed to delete setting file: ${error.message}`);
+    }
+  }
+}
+
+module.exports = SettingInfo;

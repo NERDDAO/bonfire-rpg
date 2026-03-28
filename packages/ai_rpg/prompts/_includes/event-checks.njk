@@ -1,0 +1,75 @@
+<sampleExperiencePointValues>
+  {% for exp in experiencePointValues %}
+  {{ exp.action }}: {{ exp.value }}{% endfor %}
+</sampleExperiencePointValues>
+
+<task>You are an AI designed to analyze a text-based RPG scene and determine if specific events have occurred. You will be provided with the current world setting, location description, player information, NPCs present, and items in the scene. Your task is to answer a numbered series of event-checking questions based on this context. You will consider each question very carefully as it relates to the text to check, to ensure that your answers are correct and complete.</task>
+
+Current location summary:
+Location name: {{ currentLocation.name }}
+Region name: {{ regionContext.name }}
+Characters at location: 
+{% for npc in npcs %}- {{ npc.name }}
+{% endfor %}Characters in party:
+{% for member in party %}- {{ member.name }}
+{% endfor %}
+
+Text to check for events:
+<textToCheck>
+{% if includePlayerActionBlock and actionText and actionText | trim %}<playerAction>
+{{ actionText }}
+</playerAction>{% endif %}
+{{ textToCheck }}
+</textToCheck>
+
+Location/region rules:
+* A "region" is any group of locations that share a common theme or purpose, such as a building interior, a town, a biome, a dimension, a planet, etc. If an exit or move is to a place that doesn't belong within the description of the current region, this is a region. Being a piece of scenery doesn't preclude something from being a region; for instance, moving into a large building or structure (such as a castle, ship, or cave) is moving to a new region.
+* A "location" is a specific place within a region, such as a room in a building, a specific landmark in a biome, etc. If an exit or move is to a place that fits within the description of the current region, this is a location. Being a piece of scenery doesn't preclude something from being a location; for instance, moving into a small shed is moving to a new location.
+* A "sublocation" is a distinct area within a location that is likely to have a different description, such as deeper into a forest, through an open archway, moving a long distance within the same location, moving into a nook or alcove (one that's not a path to a different location), or moving to any other part of the location that would be described differently. Going *inside* a piece of scenery that's large enough to enter (a tent, a large crate, a hollowed-out tree, etc) but not large enough to be its own location is a sublocation.
+* Some moves within locations aren't to sublocations; for instance, moving to (but not inside) scenery or furniture, sitting down or resting, moving somewhere nearby in the location, or any kind of moving for combat positioning (hiding, taking cover, dodging, attacking, being moved or thrown due to an attack, and so on). These are not sublocations. The exception to combat movement is being hit or thrown so hard that you end up beyond the boundaries of the current location, which is a move to a new location or region depending on where you land.
+
+Status effect vs. Alteration:
+* A "status effect" is a temporary condition that affects a character's abilities or attributes, such as being poisoned, stunned, or fatigued. Status effects are typically short-term and can be removed or cured through specific actions or items. The results of battle damage should be applied as status effects, even if they are permanent damage or reduce mobility, etc, because they can be healed or repaired later.
+* An "alteration" is a more permanent change to a character's abilities, attributes, or appearance, such as a curse, a transformation, or a change of class. Alterations are typically permanent, and, if detrimental, may require special means to reverse or cure.
+* Filling a container with items is considered an alteration if the container itself is described as being empty before being filled, and full after being filled. If the container is not described as empty beforehand, filling it is not considered an alteration, unless the contents are now substantially different from what was there before.
+* Do not mistake intense scenes (particularly during battles or sex) for physical transformations. Being overwhelmed with arousal, fear, pain, etc, is a status effect, not a physical transformation. Only *major* physical changes (such as the loss of a limb, turning into a different species, etc) count as alterations. Minor ones, such as wounds and physical manifestations of arousal are status effects. When we talk about a physical transformation, we mean a literal physical transformation of the body, not a metaphorical transofmration.
+* Body movements are never a physical transformation and are often not even status effects.
+* Characters are not items. If a question asks for an item, do not answer with a character, or vice-versa.
+
+These characters are currently known by the system to be present. This is not necessary an exhaustive list, but it contains no false positives. Any entites present in textToCheck are also considered present; this list may not be completely up to date on all newly present characters.
+- {{ characterName }}
+{% for npc in npcs %}- {{ npc.name }} ({{ npc.race }}/{{ npc.class }})
+{% endfor %}{% for member in party %}{% if member not in npcs %}- {{ member.name }} ({{ member.race }}/{{ member.class }})
+{% endif %}{% endfor %}
+
+Event Checks:
+{%- set questions = eventQuestions | default([]) %}
+{%- for q in questions %}
+{{ loop.index }}. {{ q }}
+{% endfor %}
+
+Respond with a numbered list of answers corresponding to the event checks above, specifically checking the text inside the textToCheck tags (the remaining game history is provided strictly so you can infer things based on context). If an event did not occur, respond with "N/A" for that item. Keep answers concise and to the point. If asked for the name of a character, item, location, etc, always respond with the full name given in the context above. If there are multiple candidates for matching an item name, prefer the one that appears in the player or location inventory, and then the one that matches the name most exactly. Omit considering anything outside the textToCheck block. Answer the questions in a numbered list format, without any additional commentary or explanation. Then, check over them and comment on whether you missed anything or whether formatted any answers incorrectly. Finally, and answer them again (making sure the formatting strictly follows what is specified in each question, and that you didn't miss anything). Enclose the second batch of answers in a &gt;final&gt; tag. For example:
+
+1. ...
+2. ...
+3. ...
+4. ...
+[... and so on ...]
+
+Did I miss anything? ...briefly list what you missed here, if anything...
+
+Did I list anything I shouldn't have? ...briefly list any false positives...
+
+Did I misfomat any answers? ...briefly list which answers you misformatted, if any...
+
+Did I refer to everything by its full, exact name? ...names in prose may differ from full names. list any of these I missed...
+
+<final>
+1. ...
+2. ...
+3. ...
+4. ...
+[... and so on ...]
+</final>
+
+

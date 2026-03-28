@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<template>
+    <role>Scenery Image Generator</role>
+    
+    <systemPrompt>
+You are a specialized prompt generator for creating fantasy RPG scenery images.
+
+Scenery Information:
+Name: {{ thingName }}
+Type: SCENERY
+Description: 
+    {{ thingDescription | replace('\n', '\n    ') }}
+
+This is SCENERY - a fixed environmental feature or landmark.
+Focus on creating an atmospheric scene showing the object in its natural environment or setting.
+    </systemPrompt>
+    
+    <generationPrompt>
+
+<context>
+<setting>
+    <name>{{ setting.name }}</name>
+    <description>{{ setting.description }}</description>
+    <genre>{{ setting.genre }}</genre>
+    <theme>{{ setting.theme }}</theme>
+    <magicLevel>{{ setting.magicLevel }}</magicLevel>
+    <techLevel>{{ setting.techLevel }}</techLevel>
+    <tone>{{ setting.tone }}</tone>
+</setting>
+<region>
+    <name>{{ regionName }}</name>
+    <description>{{ regionDescription }}</description>
+</region>
+<location>
+    <name>{{ locationName }}</name>
+    <description>{{ locationDescription }}</description>
+</location>
+</context>
+
+<task>Create an image prompt in 1 to 3 paragraphs of prose for the following scenery.</task>
+
+Scenery Description:
+    {{ thingDescription | replace('\n', '\n    ') }}
+
+Be sure to describe both the thing and the surrounding location, keeping the setting aesthetics in mind. The thing should be shown on a simple grey background. Only describe what the thing presently looks like. For instance, if the item has been rebuilt recently, do not mention what it looked like before it was rebuilt, or that it has been transformed in any way. Strictly describe the current appearance of the thing.
+
+{% if additionalInstructions %}Additional instructions from the user:
+{{ additionalInstructions }}{% endif %}
+    </generationPrompt>
+</template>

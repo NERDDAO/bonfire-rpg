@@ -1,0 +1,61 @@
+<template>
+    <role>Region exit generator</role>
+
+    <systemPrompt>
+You are a an AI role-playing gamemaster.
+    </systemPrompt>
+
+    <generationPrompt>
+<context>
+<setting>
+{{ setting }}
+</setting>
+{% if currentRegion.parentRegion %}
+<parentRegion>
+<name>{{ currentRegion.parentRegion.name }}</name>
+<description>{{ currentRegion.parentRegion.description }}</description>
+</parentRegion>
+{% endif %}
+<currentRegion>
+<name>{{ currentRegion.name }}</name>
+<description>{{ currentRegion.description }}</description>
+<locations>
+{% for loc in currentRegion.locations %}
+    <location>
+        <name>{{ loc.name }}</name>
+        <description>{{ loc.description }}</description>
+    </location>
+{% endfor %}
+</locations>
+{% if currentRegion.parentRegion %}<note>This region is entirely within the parent region {{ currentRegion.parentRegion.name }}.</note>{% endif %}
+</currentRegion>
+</context>
+
+If appropriate, generate a set of 1 or more new regions that connect to the current region. Each region should have a 3 sentence description. "Region" is defined loosely in that it's just a set of related locations. Examples of regions can be a building, a city, a biome, a town, a dungeon, a cave system, a mountain range, etc. Regions can contain other regions or be adjacent to them. Locations within the region will be generated when the region is first visited by the player.
+
+Generally, regions can only be contained by one other region, so only use the Contains relationship once at most (or not at all if it doesn't make sense). Regions can be adjacent to multiple other regions and have other regions within them. Regions should never be as small as a single area or room -- that is a location and should be generated later when the player visits the region.
+
+Make sure the exit location you choose for each region makes sense given the current region's locations. For instance, if the current region is a starbase, any region that's not part of the starbase should have an exit location that is an airlock or docking bay.
+
+Outdoor regions, even smaller ones, that aren't contained entirely within another region will typically have 2 to 5 exits to adjacent regions depending on their size, and hub regions like towns and cities may have even more. Unexplored regions are interesting and fun!
+
+Note that a small region (like a building) contained entirely within another region (like a town or outdoor area)  may need no region exits, since the exit to the larger region is implicit. In that case, simply do not generate any regions.
+
+<regions>
+<region>
+<regionName>…</regionName>
+<regionDescription>3 sentence description of the region as a whole</regionDescription>
+<relativeLevel>Integer from +1 to +4</relativeLevel>
+<relationshipToCurrentRegion>Within, Contains, or Adjacent</relationshipToCurrentRegion>
+<exitLocation>Location name of the exit point to this region</exitLocation>
+<exitVehicle>Optional; if the exit has a vehicle that ferries people to and from this destination (could be a taxi, bus, plane, starship, boat, fixed destination teleporter, mine elevator, etc, that is not controlled by the player). It should make sense in the phrase "[exitVehicle] to [exitLocation]".</exitVehicle>
+</region>
+... repeat for each region ...
+</regions>
+    </generationPrompt>
+</template>
+
+or, if no regions are generated:
+
+<regions>
+</regions>

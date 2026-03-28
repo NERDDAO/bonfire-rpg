@@ -1,0 +1,8 @@
+{
+  "gm_server_url": "http://localhost:9997",
+  "bonfire_id": "",
+  "agent_id": "",
+  "player_name": "",
+  "sync_interval_ms": 30000,
+  "auto_sync": true
+}

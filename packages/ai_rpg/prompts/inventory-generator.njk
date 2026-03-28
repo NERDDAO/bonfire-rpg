@@ -1,0 +1,54 @@
+<template>
+    <role>Character Inventory Generator</role>
+    
+    <systemPrompt>
+You are a an AI role-playing gamemaster.
+    </systemPrompt>
+    
+    <generationPrompt>
+<context>
+Here is a list of all character attributes:
+{% for attrName, attrDef in attributeDefinitions %}- {{ attrName }}: {{ attrDef.description }}
+{% endfor %}
+
+Here is a list of available equipment slot types:
+{% for slot in gearSlots %}- {{ slot }}
+{% endfor %}
+
+<setting>
+{{ setting }}
+</setting>
+<region>
+<name>{{ region.regionName }}</name>
+<description>{{ region.regionDescription }}</description>
+</region>
+<location>
+<name>{{ location.name }}</name>
+<description>{{ location.description }}</description>
+</location>
+<character>
+<name>{{ character.name }}</name>
+<role>{{ character.role }}</role>
+<description>{{ character.description }}</description>
+<class>{{ character.class }}</class>
+<level>{{ character.level }}</level>
+<race>{{ character.race }}</race>
+</character>
+</context>
+
+{% if lorebookEntries and lorebookEntries.length > 0 %}
+<worldLore>
+{% for entry in lorebookEntries %}
+<loreEntry>{{ entry.content }}</loreEntry>
+{% endfor %}
+</worldLore>
+{% endif %}
+
+I'd like you to generate a set of 1 to 5 items that would be found in the above character's inventory in the above setting. The items should be appropriate for the setting and the character's role within it.{% if lorebookEntries and lorebookEntries.length > 0 %} Incorporate relevant elements from the world lore provided above.{% endif %} Output them in the format below:
+
+<items>
+{% include "_includes/item.njk" %}
+[0-4 more items depending on how many you generate]
+</items>
+</generationPrompt>
+</template>

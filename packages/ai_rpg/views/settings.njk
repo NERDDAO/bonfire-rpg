@@ -1,0 +1,2275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title | default("Game Settings Manager") }}</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <link rel="stylesheet" href="/css/settings.css">
+</head>
+<body>
+    {% set startingLocationPlaceholder -%}Region name: [name]
+
+Summary: [description]
+
+Rooms/Locations: [comma-separated list of rooms]
+
+Region exits: [comma-separated list of connected regions]{%- endset %}
+    {% set baseContextPreamblePlaceholder = '[Title: The Verdant Metropolis; Tags: heroic, dark, edgy; Genre: sci-fi, adventure, dystopian]' %}
+    <div class="container">
+        <div class="header">
+            <h1>⚙️ Game Settings Manager</h1>
+            <p>Create and manage custom game world settings</p>
+            {% include "_navigation.njk" %}
+        </div>
+
+        <div id="statusMessage" class="status-message"></div>
+
+        <div class="settings-workspace">
+            <aside class="settings-library-panel">
+                <div class="library-header">
+                    <div>
+                        <h2>📋 Saved Settings</h2>
+                        <p id="appliedSettingLabel" class="applied-setting-label">No setting currently applied.</p>
+                    </div>
+                    <button type="button" id="newSettingBtn" class="btn btn-secondary btn-small-action">+ New</button>
+                </div>
+
+                <div class="library-controls">
+                    <div class="library-control">
+                        <label for="settingsSearch">Search</label>
+                        <input type="search" id="settingsSearch" placeholder="Name, theme, genre, tone, difficulty">
+                    </div>
+                    <div class="library-control">
+                        <label for="settingsSort">Sort</label>
+                        <select id="settingsSort">
+                            <option value="applied-first">Applied First</option>
+                            <option value="name-asc">Name (A-Z)</option>
+                            <option value="name-desc">Name (Z-A)</option>
+                            <option value="theme-genre">Theme / Genre</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="selectedSettingPanel" class="selected-setting-panel is-empty">
+                    <div class="selected-setting-info">
+                        <h3 id="selectedSettingTitle">No setting selected</h3>
+                        <p id="selectedSettingMeta">Select a setting from the library to edit or apply it.</p>
+                    </div>
+                    <div class="selected-setting-actions">
+                        <button type="button" id="selectedEditBtn" class="btn btn-secondary">Edit</button>
+                        <button type="button" id="selectedApplyBtn" class="btn btn-primary">Apply</button>
+                        <button type="button" id="selectedCloneBtn" class="btn btn-secondary">Clone</button>
+                        <button type="button" id="selectedDeleteBtn" class="btn btn-danger">Delete</button>
+                    </div>
+                    <p id="selectedSettingDescription" class="selected-setting-description"></p>
+                </div>
+
+                <div id="settingsList" class="settings-list-items">
+                    <div class="empty-state">
+                        <p>No settings created yet.<br>Create your first setting using the editor.</p>
+                    </div>
+                </div>
+            </aside>
+
+            <section class="settings-editor-panel">
+                <h2 id="formTitle">✨ Create New Setting</h2>
+                <p class="editor-intro">Use tabs to focus on one slice of the setting at a time. All fields still save together.</p>
+
+                <div class="editor-tabs" role="tablist" aria-label="Setting editor sections">
+                    <button type="button" class="editor-tab-btn is-active" data-editor-tab="basics" aria-selected="true">Basics</button>
+                    <button type="button" class="editor-tab-btn" data-editor-tab="defaults" aria-selected="false">New Game Defaults</button>
+                    <button type="button" class="editor-tab-btn" data-editor-tab="factions" aria-selected="false">Factions</button>
+                    <button type="button" class="editor-tab-btn" data-editor-tab="characters" aria-selected="false">Character Options</button>
+                    <button type="button" class="editor-tab-btn" data-editor-tab="prompts" aria-selected="false">Prompt Guidance</button>
+                    <button type="button" class="editor-tab-btn" data-editor-tab="images" aria-selected="false">Image Prefixes</button>
+                </div>
+
+                <form id="settingForm">
+                    <input type="hidden" id="settingId" name="id">
+                    <input type="hidden" id="defaultFactions" name="defaultFactions" value="[]">
+
+                    <section class="editor-tab-panel is-active" data-editor-panel="basics">
+                        <div class="field-grid">
+                            <div class="form-group">
+                                <label for="name">Setting Name *</label>
+                                <input type="text" id="name" name="name" required>
+                                <div class="help-text">Unique name for this setting configuration.</div>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="description">Description</label>
+                                <textarea id="description" name="description" rows="12" placeholder="Describe this setting and what makes it unique..."></textarea>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="theme">World Theme *</label>
+                                <input type="text" id="theme" name="theme" required placeholder="e.g., Fantasy, Sci-Fi, Modern, Horror, Cyberpunk...">
+                                <div class="help-text">The overarching setting of the game world.</div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="genre">Game Genre *</label>
+                                <input type="text" id="genre" name="genre" required placeholder="e.g., Adventure, Mystery, Combat, Exploration, Survival...">
+                                <div class="help-text">Primary style of gameplay focus.</div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="startingLocationType">Starting Location Type</label>
+                                <input type="text" id="startingLocationType" name="startingLocationType" placeholder="e.g., Tavern, Village, City, Wilderness, Ship...">
+                                <div class="help-text">Where adventures typically begin.</div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="magicLevel">Magic Level</label>
+                                <input type="text" id="magicLevel" name="magicLevel" placeholder="e.g., High Magic, Low Magic, Rare, Ubiquitous, None...">
+                                <div class="help-text">How common magic is in the world.</div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="techLevel">Technology Level</label>
+                                <input type="text" id="techLevel" name="techLevel" placeholder="e.g., Medieval, Renaissance, Industrial, Modern, Futuristic...">
+                                <div class="help-text">Technological advancement of the world.</div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="tone">Narrative Tone</label>
+                                <input type="text" id="tone" name="tone" placeholder="e.g., Heroic, Dark, Comedic, Gritty, Epic, Lighthearted...">
+                                <div class="help-text">Overall emotional atmosphere.</div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="difficulty">Difficulty Level</label>
+                                <input type="text" id="difficulty" name="difficulty" placeholder="e.g., Easy, Normal, Hard, Lethal, Forgiving...">
+                                <div class="help-text">Challenge level and lethality.</div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="currencyName">Currency Name</label>
+                                <input type="text" id="currencyName" name="currencyName" placeholder="e.g., Credit, Coin, Gil">
+                                <div class="help-text">Singular name when referencing one unit of currency.</div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="currencyNamePlural">Currency Name (Plural)</label>
+                                <input type="text" id="currencyNamePlural" name="currencyNamePlural" placeholder="e.g., Credits, Coins, Gil">
+                                <div class="help-text">Plural form used for amounts above one.</div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="playerStartingLevel">Player Starting Level</label>
+                                <input type="number" id="playerStartingLevel" name="playerStartingLevel" min="1" value="1">
+                                <div class="help-text">Level for new players.</div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="editor-tab-panel" data-editor-panel="defaults">
+                        <div class="field-grid">
+                            <div class="form-group">
+                                <label for="defaultPlayerName">Default Player Name</label>
+                                <input type="text" id="defaultPlayerName" name="defaultPlayerName" placeholder="e.g., Adventurer">
+                                <div class="help-text">Prefills the player name on the New Game screen.</div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="defaultStartingCurrency">Default Starting Currency</label>
+                                <input type="number" id="defaultStartingCurrency" name="defaultStartingCurrency" min="0" value="0">
+                                <div class="help-text">Prefills the Starting Currency field on the New Game screen.</div>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="defaultPlayerDescription">Default Player Description</label>
+                                <textarea id="defaultPlayerDescription" name="defaultPlayerDescription" rows="4" placeholder="Describe the default hero..."></textarea>
+                                <div class="help-text">Prefills the player description on the New Game screen.</div>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="defaultStartingLocation">Starting Location Generation Instructions</label>
+                                <textarea id="defaultStartingLocation" name="defaultStartingLocation" rows="5" placeholder="{{ startingLocationPlaceholder }}"></textarea>
+                                <div class="help-text">Prefills starting location instructions on the New Game screen.</div>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="defaultExistingSkills">Default Existing Skills (one per line)</label>
+                                <textarea id="defaultExistingSkills" name="defaultExistingSkills" rows="7" placeholder="Enter skill names..."></textarea>
+                                <div class="help-text">These skills become the default skill list for new games.</div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="editor-tab-panel" data-editor-panel="factions">
+                        <div class="field-grid">
+                            <div class="form-group">
+                                <label for="defaultFactionCount">Number of Factions</label>
+                                <input type="number" id="defaultFactionCount" name="defaultFactionCount" min="0" step="1" value="{{ defaultFactionCountFallback | default(5) }}">
+                                <div class="help-text">Used when generating factions for a new game from this setting.</div>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <div class="settings-faction-toolbar">
+                                    <button type="button" class="btn btn-secondary small" id="settingsFactionGenerateBtn">Pre-Generate Factions</button>
+                                    <button type="button" class="btn btn-secondary small" id="settingsFactionAddBtn">Add Faction</button>
+                                    <button type="button" class="btn btn-secondary small" id="settingsFactionDeleteBtn">Delete Selected</button>
+                                    <button type="button" class="btn btn-secondary small" id="settingsFactionApplyBtn">Apply Edits</button>
+                                    <button type="button" class="btn btn-accent small" id="settingsFactionAutofillBtn">✨ Auto-Fill Selected</button>
+                                </div>
+                                <div class="help-text">Use pre-generation to create a baseline list, then edit each faction before saving the setting.</div>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="settingsFactionGenerationNotes">Faction Generation Notes (AI Guidance)</label>
+                                <textarea id="settingsFactionGenerationNotes" rows="3" placeholder="Optional guidance for faction generation/autofill in this setting..."></textarea>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <div class="settings-faction-layout">
+                                    <aside class="settings-faction-sidebar">
+                                        <h3>Faction List</h3>
+                                        <div id="settingsFactionList" class="faction-list"></div>
+                                        <div id="settingsFactionEmpty" class="faction-empty">No factions configured yet.</div>
+                                    </aside>
+                                    <div class="settings-faction-main">
+                                        <div id="settingsFactionDetailPlaceholder" class="faction-detail-placeholder">
+                                            Select a faction from the list, or add one.
+                                        </div>
+                                        <div id="settingsFactionDetail" hidden>
+                                            <div class="faction-detail-header">
+                                                <h3 id="settingsFactionDetailTitle">Faction</h3>
+                                                <span class="faction-detail-meta" id="settingsFactionDetailMeta"></span>
+                                            </div>
+                                            <div class="field-grid">
+                                                <div class="form-group">
+                                                    <label for="settingsFactionName">Name</label>
+                                                    <input type="text" id="settingsFactionName" placeholder="Faction name">
+                                                </div>
+                                                <div class="form-group">
+                                                    <label for="settingsFactionHomeRegion">Home Region</label>
+                                                    <input type="text" id="settingsFactionHomeRegion" placeholder="Optional region anchor">
+                                                </div>
+                                                <div class="form-group full-width">
+                                                    <label for="settingsFactionShortDescription">Short Description</label>
+                                                    <textarea id="settingsFactionShortDescription" rows="2" placeholder="One-sentence summary"></textarea>
+                                                </div>
+                                                <div class="form-group full-width">
+                                                    <label for="settingsFactionDescription">Description</label>
+                                                    <textarea id="settingsFactionDescription" rows="4" placeholder="Longer faction overview"></textarea>
+                                                </div>
+                                                <div class="form-group full-width">
+                                                    <label for="settingsFactionTags">Tags</label>
+                                                    <textarea id="settingsFactionTags" rows="2" placeholder="ideology, archetype, focus"></textarea>
+                                                </div>
+                                                <div class="form-group full-width">
+                                                    <label for="settingsFactionGoals">Goals</label>
+                                                    <textarea id="settingsFactionGoals" rows="3" placeholder="Primary goals and ambitions"></textarea>
+                                                </div>
+                                            </div>
+
+                                            <div class="config-section">
+                                                <div class="faction-section-header">
+                                                    <h2>Assets</h2>
+                                                    <button type="button" class="btn btn-secondary small" id="settingsFactionAssetAddButton">Add Asset</button>
+                                                </div>
+                                                <div class="faction-assets" id="settingsFactionAssetsList"></div>
+                                            </div>
+
+                                            <div class="config-section">
+                                                <h2>Relations</h2>
+                                                <div class="faction-relations" id="settingsFactionRelationsList"></div>
+                                            </div>
+
+                                            <div class="config-section">
+                                                <div class="faction-section-header">
+                                                    <h2>Reputation Tiers</h2>
+                                                    <button type="button" class="btn btn-secondary small" id="settingsFactionTierAddButton">Add Tier</button>
+                                                </div>
+                                                <div class="faction-tiers" id="settingsFactionTiersList"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="editor-tab-panel" data-editor-panel="characters">
+                        <div class="field-grid">
+                            <div class="form-group full-width">
+                                <label for="availableClasses">Available Classes (one per line)</label>
+                                <textarea id="availableClasses" name="availableClasses" rows="7" placeholder="Warrior\nRanger\nArcane Scholar"></textarea>
+                                <div class="help-text">Classes the player can pick during character creation.</div>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="availableRaces">Available Races (one per line)</label>
+                                <textarea id="availableRaces" name="availableRaces" rows="7" placeholder="Human\nElf\nClockwork Automaton"></textarea>
+                                <div class="help-text">Races or species available for new characters.</div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="editor-tab-panel" data-editor-panel="prompts">
+                        <div class="field-grid">
+                            <div class="form-group full-width">
+                                <label for="currencyValueNotes">Currency Value Notes</label>
+                                <textarea id="currencyValueNotes" name="currencyValueNotes" rows="5" placeholder="Describe how valuable different amounts of currency are, typical wages, or trade conventions..."></textarea>
+                                <div class="help-text">Explain what typical amounts of money can buy or how wealth is perceived.</div>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="writingStyleNotes">Writing Style Notes</label>
+                                <textarea id="writingStyleNotes" name="writingStyleNotes" rows="5" placeholder="Provide storytelling tone, visual motifs, cultural details, or vibe notes for the Game Master..."></textarea>
+                                <div class="help-text">Additional guidance for narrative voice, aesthetic, or flavor details.</div>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="baseContextPreamble">Base Context Preamble</label>
+                                <textarea id="baseContextPreamble" name="baseContextPreamble" rows="5" placeholder="{{ baseContextPreamblePlaceholder }}"></textarea>
+                                <div class="help-text">Prepended to base-context prompts so the Game Master keeps core framing in mind.</div>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="characterGenInstructions">Character Generation Instructions</label>
+                                <textarea id="characterGenInstructions" name="characterGenInstructions" rows="5" placeholder="Optional extra guidance for NPC and character concept generation..."></textarea>
+                                <div class="help-text">Applied when generating NPCs and character concepts for this setting.</div>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="customSlopWords">Custom Slop Words (one per line)</label>
+                                <textarea id="customSlopWords" name="customSlopWords" rows="5" placeholder="echoing silence\nstarlight protocol"></textarea>
+                                <div class="help-text">Single-word entries are checked as slop words. Multi-word entries are checked as ngrams.</div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="editor-tab-panel" data-editor-panel="images">
+                        <div class="field-grid">
+                            <div class="form-group full-width">
+                                <label for="imagePromptPrefixCharacter">Character Image Prompt Prefix</label>
+                                <textarea id="imagePromptPrefixCharacter" name="imagePromptPrefixCharacter" rows="4" placeholder="Short guidance appended before character portrait prompts..."></textarea>
+                                <div class="help-text">Optional text prepended to character portrait prompts (e.g., art style, lighting, tone).</div>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="imagePromptPrefixLocation">Location Image Prompt Prefix</label>
+                                <textarea id="imagePromptPrefixLocation" name="imagePromptPrefixLocation" rows="4" placeholder="Short guidance for location images..."></textarea>
+                                <div class="help-text">Optional text prepended to location art prompts.</div>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="imagePromptPrefixItem">Item Image Prompt Prefix</label>
+                                <textarea id="imagePromptPrefixItem" name="imagePromptPrefixItem" rows="4" placeholder="Short guidance for item renders..."></textarea>
+                                <div class="help-text">Optional text prepended to item illustration prompts.</div>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="imagePromptPrefixScenery">Scenery Image Prompt Prefix</label>
+                                <textarea id="imagePromptPrefixScenery" name="imagePromptPrefixScenery" rows="4" placeholder="Short guidance for scenery/establishing shot art..."></textarea>
+                                <div class="help-text">Optional text prepended to scenery/background prompts.</div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <div id="previewSection" class="preview-section" style="display: none;">
+                        <div class="preview-title">Setting Preview</div>
+                        <div id="previewContent"></div>
+                    </div>
+
+                    <div class="editor-sticky-actions">
+                        <div class="button-group">
+                            <button type="button" id="clearBtn" class="btn btn-secondary">Clear</button>
+                            <button type="submit" id="submitBtn" class="btn btn-primary">Create Setting</button>
+                        </div>
+                        <button type="button" id="generateBtn" class="btn btn-accent">✨ Auto-Fill Blank Fields</button>
+                    </div>
+                </form>
+            </section>
+        </div>
+    </div>
+
+    <div id="autofillInstructionsModal" class="modal settings-autofill-modal" role="dialog" aria-modal="true" aria-hidden="true" hidden>
+        <div class="modal__dialog">
+            <header class="modal__header">
+                <h2>Additional Guidance</h2>
+                <button type="button" class="modal__close" id="autofillInstructionsCloseBtn" aria-label="Close auto-fill instructions dialog">
+                    <span aria-hidden="true">X</span>
+                </button>
+            </header>
+            <div class="modal__body">
+                <p class="help-text" style="margin-bottom: 0.75rem;">Optional notes for the AI when generating missing setting details. Leave blank to continue without extra guidance.</p>
+                <textarea id="autofillInstructionsInput" rows="5" placeholder="E.g., focus on coastal cities and political intrigue..."></textarea>
+                <div class="autofill-image-field">
+                    <label for="autofillImageInput">Reference Image (optional)</label>
+                    <input type="file" id="autofillImageInput" accept="image/*">
+                    <div class="help-text">Attach an image to guide the AI when filling missing fields.</div>
+                </div>
+            </div>
+            <footer class="modal__footer">
+                <div class="button-group">
+                    <button type="button" class="btn btn-secondary" id="autofillInstructionsCancelBtn">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="autofillInstructionsConfirmBtn">Apply Guidance</button>
+                </div>
+            </footer>
+        </div>
+    </div>
+
+    <script>
+        let currentSettings = [];
+        let selectedSettingId = null;
+        let isEditMode = false;
+        let appliedSetting = null;
+        let settingsSearchQuery = '';
+        let settingsSortMode = 'applied-first';
+        let activeEditorTab = 'basics';
+        let settingsFactionEditor = null;
+        const defaultExistingSkillsList = {{ (defaultExistingSkills or []) | dump | safe }};
+        const defaultExistingSkillsLoadError = {{ (defaultExistingSkillsError or '') | dump | safe }};
+        const defaultFactionCountFallback = {{ (defaultFactionCountFallback or 5) | dump | safe }};
+        const autofillInstructionsModal = document.getElementById('autofillInstructionsModal');
+        const autofillInstructionsInput = document.getElementById('autofillInstructionsInput');
+        const autofillImageInput = document.getElementById('autofillImageInput');
+        const autofillInstructionsCancelBtn = document.getElementById('autofillInstructionsCancelBtn');
+        const autofillInstructionsCloseBtn = document.getElementById('autofillInstructionsCloseBtn');
+        const autofillInstructionsConfirmBtn = document.getElementById('autofillInstructionsConfirmBtn');
+        let pendingAutofillButton = null;
+
+        function getDefaultExistingSkillsList() {
+            if (defaultExistingSkillsLoadError) {
+                return [];
+            }
+            if (!Array.isArray(defaultExistingSkillsList)) {
+                return [];
+            }
+            return defaultExistingSkillsList
+                .map(skill => (typeof skill === 'string' ? skill.trim() : ''))
+                .filter(skill => skill.length > 0);
+        }
+
+        function getDefaultExistingSkillsText() {
+            return getDefaultExistingSkillsList().join('\n');
+        }
+
+        function applyDefaultExistingSkillsIfBlank() {
+            if (defaultExistingSkillsLoadError) {
+                return;
+            }
+            if (isEditMode) {
+                return;
+            }
+            const defaultExistingSkillsField = document.getElementById('defaultExistingSkills');
+            if (!defaultExistingSkillsField) {
+                return;
+            }
+            const currentValue = (defaultExistingSkillsField.value || '').trim();
+            if (currentValue.length > 0) {
+                return;
+            }
+            const defaultText = getDefaultExistingSkillsText();
+            if (defaultText) {
+                defaultExistingSkillsField.value = defaultText;
+            }
+        }
+
+        function openAutofillInstructionsModal(triggerButton) {
+            if (!autofillInstructionsModal) {
+                handleGenerateFill(triggerButton, '', null);
+                return;
+            }
+            pendingAutofillButton = triggerButton || null;
+            if (autofillInstructionsInput) {
+                autofillInstructionsInput.value = '';
+            }
+            if (autofillImageInput) {
+                autofillImageInput.value = '';
+            }
+            if (autofillInstructionsConfirmBtn) {
+                autofillInstructionsConfirmBtn.disabled = false;
+            }
+            autofillInstructionsModal.removeAttribute('hidden');
+            autofillInstructionsModal.setAttribute('aria-hidden', 'false');
+            autofillInstructionsModal.classList.add('is-open');
+            requestAnimationFrame(() => {
+                autofillInstructionsInput?.focus();
+            });
+        }
+
+        function closeAutofillInstructionsModal() {
+            if (!autofillInstructionsModal) {
+                return;
+            }
+            autofillInstructionsModal.setAttribute('hidden', '');
+            autofillInstructionsModal.setAttribute('aria-hidden', 'true');
+            autofillInstructionsModal.classList.remove('is-open');
+            if (autofillInstructionsConfirmBtn) {
+                autofillInstructionsConfirmBtn.disabled = false;
+            }
+            pendingAutofillButton = null;
+        }
+
+        // Load settings on page load
+        document.addEventListener('DOMContentLoaded', async function() {
+            // Automatically load saved settings from files into memory on page load
+            try {
+                const resp = await fetch('/api/settings/load', { method: 'POST' });
+                const data = await resp.json();
+                if (!data.success) {
+                    console.warn('Auto-load saved settings failed:', data.error);
+                }
+            } catch (e) {
+                console.warn('Auto-load saved settings failed:', e.message);
+            }
+
+            settingsFactionEditor = initSettingsFactionEditor();
+            await loadCurrentSetting();
+            await refreshSettingsList();
+            setupEventListeners();
+
+            if (defaultExistingSkillsLoadError) {
+                const warningMessage = `Warning: default skills could not be loaded. ${defaultExistingSkillsLoadError}`;
+                showMessage(warningMessage, 'error');
+                window.alert(warningMessage);
+            }
+            applyDefaultExistingSkillsIfBlank();
+        });
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && autofillInstructionsModal && !autofillInstructionsModal.hasAttribute('hidden')) {
+                event.preventDefault();
+                closeAutofillInstructionsModal();
+            }
+        });
+
+        async function refreshSettingsList() {
+            try {
+                const response = await fetch('/api/settings');
+                const data = await response.json();
+
+                if (data.success) {
+                    currentSettings = Array.isArray(data.settings) ? data.settings : [];
+                    if (
+                        selectedSettingId &&
+                        !currentSettings.some((setting) => setting?.id === selectedSettingId)
+                    ) {
+                        selectedSettingId = null;
+                    }
+                    renderSettingsList();
+                    updateSelectedSettingPanel();
+                }
+            } catch (error) {
+                showMessage('Error loading settings: ' + error.message, 'error');
+            }
+        }
+
+        async function loadCurrentSetting() {
+            try {
+                const response = await fetch('/api/settings/current');
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error(data.error || 'Failed to load current setting');
+                }
+
+                appliedSetting = data.setting || null;
+                updateCurrentSettingDisplay();
+                if (appliedSetting) {
+                    applySettingToForm(appliedSetting, { markAsSelected: Boolean(appliedSetting.id) });
+                } else {
+                    updateSelectedSettingPanel();
+                }
+            } catch (error) {
+                console.error('Could not load current setting:', error);
+                showMessage('Could not load current setting: ' + (error?.message || error), 'error');
+            }
+        }
+
+        function escapeHtml(value) {
+            if (value === null || value === undefined) {
+                return '';
+            }
+            return String(value)
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#39;');
+        }
+
+        function getSelectedSetting() {
+            if (!selectedSettingId) {
+                return null;
+            }
+            return currentSettings.find((setting) => setting?.id === selectedSettingId) || null;
+        }
+
+        function getSettingMetaText(setting) {
+            if (!setting || typeof setting !== 'object') {
+                return 'No metadata available';
+            }
+            const parts = [];
+            const theme = typeof setting.theme === 'string' ? setting.theme.trim() : '';
+            const genre = typeof setting.genre === 'string' ? setting.genre.trim() : '';
+            const tone = typeof setting.tone === 'string' ? setting.tone.trim() : '';
+            const difficulty = typeof setting.difficulty === 'string' ? setting.difficulty.trim() : '';
+
+            if (theme || genre) {
+                parts.push(`${theme || 'Unknown Theme'} / ${genre || 'Unknown Genre'}`);
+            }
+            if (tone) {
+                parts.push(tone);
+            }
+            if (difficulty) {
+                parts.push(difficulty);
+            }
+
+            return parts.length ? parts.join(' • ') : 'No metadata available';
+        }
+
+        function getDisplayedSettings() {
+            const normalizedQuery = settingsSearchQuery.trim().toLowerCase();
+            let visible = currentSettings.slice();
+
+            if (normalizedQuery) {
+                visible = visible.filter((setting) => {
+                    const haystack = [
+                        setting?.name,
+                        setting?.theme,
+                        setting?.genre,
+                        setting?.tone,
+                        setting?.difficulty,
+                    ]
+                        .map((value) => (typeof value === 'string' ? value.toLowerCase() : ''))
+                        .join('\n');
+                    return haystack.includes(normalizedQuery);
+                });
+            }
+
+            const appliedId = typeof appliedSetting?.id === 'string' ? appliedSetting.id : '';
+            visible.sort((a, b) => {
+                const aName = (a?.name || '').toLowerCase();
+                const bName = (b?.name || '').toLowerCase();
+
+                if (settingsSortMode === 'name-asc') {
+                    return aName.localeCompare(bName);
+                }
+                if (settingsSortMode === 'name-desc') {
+                    return bName.localeCompare(aName);
+                }
+                if (settingsSortMode === 'theme-genre') {
+                    const aThemeGenre = `${(a?.theme || '').toLowerCase()} ${(a?.genre || '').toLowerCase()}`;
+                    const bThemeGenre = `${(b?.theme || '').toLowerCase()} ${(b?.genre || '').toLowerCase()}`;
+                    const byTheme = aThemeGenre.localeCompare(bThemeGenre);
+                    return byTheme !== 0 ? byTheme : aName.localeCompare(bName);
+                }
+
+                const aApplied = a?.id === appliedId ? 0 : 1;
+                const bApplied = b?.id === appliedId ? 0 : 1;
+                if (aApplied !== bApplied) {
+                    return aApplied - bApplied;
+                }
+                return aName.localeCompare(bName);
+            });
+
+            return visible;
+        }
+
+        function updateCurrentSettingDisplay() {
+            const appliedLabel = document.getElementById('appliedSettingLabel');
+            if (!appliedLabel) {
+                throw new Error('Expected element "appliedSettingLabel" to exist.');
+            }
+            if (appliedSetting && typeof appliedSetting.name === 'string' && appliedSetting.name.trim()) {
+                appliedLabel.textContent = `Currently applied: ${appliedSetting.name.trim()}`;
+            } else {
+                appliedLabel.textContent = 'No setting currently applied.';
+            }
+        }
+
+        function updateSelectedSettingPanel() {
+            const panel = document.getElementById('selectedSettingPanel');
+            const title = document.getElementById('selectedSettingTitle');
+            const meta = document.getElementById('selectedSettingMeta');
+            const description = document.getElementById('selectedSettingDescription');
+            const editBtn = document.getElementById('selectedEditBtn');
+            const applyBtn = document.getElementById('selectedApplyBtn');
+            const cloneBtn = document.getElementById('selectedCloneBtn');
+            const deleteBtn = document.getElementById('selectedDeleteBtn');
+
+            if (!panel || !title || !meta || !description || !editBtn || !applyBtn || !cloneBtn || !deleteBtn) {
+                throw new Error('Selected-setting panel is missing required elements.');
+            }
+
+            const selected = getSelectedSetting();
+            if (!selected) {
+                panel.classList.add('is-empty');
+                title.textContent = 'No setting selected';
+                meta.textContent = 'Select a setting from the library to edit or apply it.';
+                description.textContent = '';
+                editBtn.disabled = true;
+                applyBtn.disabled = true;
+                cloneBtn.disabled = true;
+                deleteBtn.disabled = true;
+                return;
+            }
+
+            panel.classList.remove('is-empty');
+            title.textContent = selected.name || 'Unnamed Setting';
+            const statusParts = [getSettingMetaText(selected)];
+            if (appliedSetting && appliedSetting.id === selected.id) {
+                statusParts.push('Applied');
+            }
+            meta.textContent = statusParts.join(' • ');
+            const rawDescription =
+                typeof selected.description === 'string' ? selected.description.trim() : '';
+            description.textContent = rawDescription || 'No description available.';
+
+            editBtn.disabled = false;
+            applyBtn.disabled = false;
+            cloneBtn.disabled = false;
+            deleteBtn.disabled = false;
+        }
+
+        function renderSettingsList() {
+            const container = document.getElementById('settingsList');
+            if (!container) {
+                throw new Error('Expected element "settingsList" to exist.');
+            }
+
+            if (currentSettings.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <p>No settings created yet.<br>Create your first setting using the editor.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const visibleSettings = getDisplayedSettings();
+            if (visibleSettings.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <p>No settings matched your search.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const appliedId = typeof appliedSetting?.id === 'string' ? appliedSetting.id : '';
+            container.innerHTML = visibleSettings
+                .map((setting) => {
+                    const isSelected = selectedSettingId === setting.id;
+                    const isApplied = appliedId && setting.id === appliedId;
+                    const badges = [];
+                    if (isApplied) {
+                        badges.push('<span class="setting-badge applied">Applied</span>');
+                    }
+                    if (isSelected) {
+                        badges.push('<span class="setting-badge selected">Selected</span>');
+                    }
+
+                    return `
+                        <button type="button" class="setting-item ${isSelected ? 'selected' : ''}" data-setting-id="${escapeHtml(setting.id || '')}">
+                            <span class="setting-item-main">
+                                <span class="setting-item-header">
+                                    <span class="setting-name">${escapeHtml(setting.name || 'Unnamed Setting')}</span>
+                                    <span class="setting-badges">${badges.join('')}</span>
+                                </span>
+                                <span class="setting-meta">${escapeHtml(getSettingMetaText(setting))}</span>
+                            </span>
+                        </button>
+                    `;
+                })
+                .join('');
+        }
+
+        function setActiveEditorTab(tabId) {
+            const panel = document.querySelector(`.editor-tab-panel[data-editor-panel="${tabId}"]`);
+            if (!panel) {
+                throw new Error(`Unknown editor tab: ${tabId}`);
+            }
+
+            activeEditorTab = tabId;
+            document.querySelectorAll('.editor-tab-btn').forEach((button) => {
+                const isActive = button.dataset.editorTab === tabId;
+                button.classList.toggle('is-active', isActive);
+                button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+            });
+            document.querySelectorAll('.editor-tab-panel').forEach((tabPanel) => {
+                tabPanel.classList.toggle('is-active', tabPanel.dataset.editorPanel === tabId);
+            });
+        }
+
+        function applySettingToForm(setting, { markAsSelected = false } = {}) {
+            if (!setting || typeof setting !== 'object') {
+                throw new Error('applySettingToForm requires a setting object');
+            }
+
+            const getField = (id) => {
+                const field = document.getElementById(id);
+                if (!field) {
+                    throw new Error(`Form field "${id}" is missing`);
+                }
+                return field;
+            };
+
+            const assignValue = (id, value = '') => {
+                const field = getField(id);
+                field.value = value ?? '';
+            };
+
+            assignValue('settingId', setting.id || '');
+            assignValue('name', setting.name || '');
+            assignValue('description', setting.description || '');
+            assignValue('theme', setting.theme || '');
+            assignValue('genre', setting.genre || '');
+            assignValue('startingLocationType', setting.startingLocationType || '');
+            assignValue('magicLevel', setting.magicLevel || '');
+            assignValue('techLevel', setting.techLevel || '');
+            assignValue('tone', setting.tone || '');
+            assignValue('difficulty', setting.difficulty || '');
+            assignValue('currencyName', setting.currencyName || '');
+            assignValue('currencyNamePlural', setting.currencyNamePlural || '');
+
+            const startingLevelParsed = Number.parseInt(setting.playerStartingLevel, 10);
+            assignValue(
+                'playerStartingLevel',
+                Number.isFinite(startingLevelParsed) ? String(startingLevelParsed) : '1'
+            );
+
+            const defaultCurrencyParsed = Number.parseInt(setting.defaultStartingCurrency, 10);
+            assignValue(
+                'defaultStartingCurrency',
+                Number.isFinite(defaultCurrencyParsed) ? String(defaultCurrencyParsed) : '0'
+            );
+
+            assignValue('defaultPlayerName', setting.defaultPlayerName || '');
+            assignValue('defaultPlayerDescription', setting.defaultPlayerDescription || '');
+            assignValue('defaultStartingLocation', setting.defaultStartingLocation || '');
+            const defaultFactionCountParsed = Number.parseInt(setting.defaultFactionCount, 10);
+            assignValue(
+                'defaultFactionCount',
+                Number.isFinite(defaultFactionCountParsed)
+                    ? String(defaultFactionCountParsed)
+                    : String(defaultFactionCountFallback)
+            );
+
+            const joinLines = (value) => {
+                if (Array.isArray(value)) {
+                    return value.join('\n');
+                }
+                if (typeof value === 'string') {
+                    return value;
+                }
+                return '';
+            };
+
+            assignValue('defaultExistingSkills', joinLines(setting.defaultExistingSkills));
+            assignValue('availableClasses', joinLines(setting.availableClasses));
+            assignValue('availableRaces', joinLines(setting.availableRaces));
+            assignValue('currencyValueNotes', setting.currencyValueNotes || '');
+            assignValue('writingStyleNotes', setting.writingStyleNotes || '');
+            assignValue('baseContextPreamble', setting.baseContextPreamble || '');
+            assignValue('characterGenInstructions', setting.characterGenInstructions || '');
+            assignValue('customSlopWords', joinLines(setting.customSlopWords));
+            assignValue('imagePromptPrefixCharacter', setting.imagePromptPrefixCharacter || '');
+            assignValue('imagePromptPrefixLocation', setting.imagePromptPrefixLocation || '');
+            assignValue('imagePromptPrefixItem', setting.imagePromptPrefixItem || '');
+            assignValue('imagePromptPrefixScenery', setting.imagePromptPrefixScenery || '');
+            if (settingsFactionEditor) {
+                settingsFactionEditor.load(Array.isArray(setting.defaultFactions) ? setting.defaultFactions : []);
+            }
+
+            if (markAsSelected && setting.id) {
+                selectedSettingId = setting.id;
+            }
+
+            isEditMode = Boolean(setting.id);
+            const titleEl = document.getElementById('formTitle');
+            if (titleEl) {
+                const safeName = typeof setting.name === 'string' ? setting.name.trim() : '';
+                titleEl.textContent = safeName ? `✏️ Edit Setting: ${safeName}` : '✏️ Edit Setting';
+            }
+            const submitBtn = document.getElementById('submitBtn');
+            if (submitBtn) {
+                submitBtn.textContent = 'Update Setting';
+            }
+
+            setActiveEditorTab('basics');
+            renderSettingsList();
+            updateSelectedSettingPanel();
+            updatePreview();
+        }
+
+        function selectSetting(settingId) {
+            if (!settingId) {
+                throw new Error('selectSetting requires a settingId');
+            }
+            selectedSettingId = settingId;
+            renderSettingsList();
+            updateSelectedSettingPanel();
+        }
+
+        function editSetting(settingId) {
+            if (!settingId) {
+                throw new Error('editSetting requires a settingId');
+            }
+            const setting = currentSettings.find(s => s.id === settingId);
+            if (!setting) {
+                throw new Error(`Setting with id "${settingId}" not found`);
+            }
+
+            applySettingToForm(setting, { markAsSelected: true });
+        }
+
+        async function cloneSetting(settingId) {
+            try {
+                const newName = prompt('Enter name for cloned setting:');
+                if (!newName) return;
+
+                const response = await fetch(`/api/settings/${settingId}/clone`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ newName })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Auto-save the new clone to file
+                    if (data.setting && data.setting.id) {
+                        try {
+                            const saveResp = await fetch(`/api/settings/${data.setting.id}/save`, { method: 'POST' });
+                            const saveData = await saveResp.json();
+                            if (!saveData.success) {
+                                console.warn('Auto-save of cloned setting failed:', saveData.error);
+                            }
+                        } catch (e) {
+                            console.warn('Auto-save of cloned setting failed:', e.message);
+                        }
+                    }
+
+                    showMessage('Setting cloned successfully!', 'success');
+                    await refreshSettingsList();
+                } else {
+                    showMessage('Error cloning setting: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showMessage('Error cloning setting: ' + error.message, 'error');
+            }
+        }
+
+        async function deleteSetting(settingId) {
+            if (!confirm('Are you sure you want to delete this setting?')) return;
+
+            try {
+                const response = await fetch(`/api/settings/${settingId}`, {
+                    method: 'DELETE'
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage('Setting deleted successfully!', 'success');
+                    
+                    // Clear form if we were editing this setting
+                    if (selectedSettingId === settingId) {
+                        clearForm();
+                    }
+                    
+                    await refreshSettingsList();
+                    await loadCurrentSetting();
+                } else {
+                    showMessage('Error deleting setting: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showMessage('Error deleting setting: ' + error.message, 'error');
+            }
+        }
+
+        async function applySetting(settingId) {
+            try {
+                const response = await fetch(`/api/settings/${settingId}/apply`, {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage('Setting applied successfully! Game Master will now use this setting.', 'success');
+                    appliedSetting = data.setting;
+                    console.log('Applied Setting:', appliedSetting);
+                    updateCurrentSettingDisplay();
+                    if (appliedSetting) {
+                        applySettingToForm(appliedSetting, { markAsSelected: Boolean(appliedSetting.id) });
+                    }
+                    renderSettingsList();
+                } else {
+                    showMessage('Error applying setting: ' + data.error, 'error');
+                }
+
+                // Get /api/settings/current to confirm
+                const response2 = await fetch('/api/settings/current');
+                const data2 = await response2.json();
+
+                // Log current setting to console
+                console.log('Current Setting after apply:', data2);
+                if (!data2.success) {
+                    console.error('Failed to confirm current setting:', data2.error);
+                    showMessage('Failed to confirm current setting: ' + (data2.error || 'unknown error'), 'error');
+                }
+            } catch (error) {
+                showMessage('Error applying setting: ' + error.message, 'error');
+            }
+        }
+
+        function clearForm() {
+            document.getElementById('settingForm').reset();
+            document.getElementById('settingId').value = '';
+            document.getElementById('formTitle').textContent = '✨ Create New Setting';
+            document.getElementById('submitBtn').textContent = 'Create Setting';
+            
+            isEditMode = false;
+            selectedSettingId = null;
+            
+            // Clear all inputs to blank
+            const inputs = document.querySelectorAll('#settingForm input, #settingForm select');
+            inputs.forEach(input => {
+                input.value = '';
+            });
+            const textareas = document.querySelectorAll('#settingForm textarea');
+            textareas.forEach(area => {
+                area.value = '';
+            });
+
+            document.getElementById('playerStartingLevel').value = '1';
+            const defaultExistingSkillsField = document.getElementById('defaultExistingSkills');
+            if (defaultExistingSkillsField) {
+                defaultExistingSkillsField.value = getDefaultExistingSkillsText();
+            }
+            const availableClassesField = document.getElementById('availableClasses');
+            if (availableClassesField) {
+                availableClassesField.value = '';
+            }
+            const availableRacesField = document.getElementById('availableRaces');
+            if (availableRacesField) {
+                availableRacesField.value = '';
+            }
+            const defaultPlayerNameField = document.getElementById('defaultPlayerName');
+            if (defaultPlayerNameField) {
+                defaultPlayerNameField.value = '';
+            }
+            const defaultPlayerDescriptionField = document.getElementById('defaultPlayerDescription');
+            if (defaultPlayerDescriptionField) {
+                defaultPlayerDescriptionField.value = '';
+            }
+            const defaultStartingLocationField = document.getElementById('defaultStartingLocation');
+            if (defaultStartingLocationField) {
+                defaultStartingLocationField.value = '';
+            }
+            const defaultStartingCurrencyField = document.getElementById('defaultStartingCurrency');
+            if (defaultStartingCurrencyField) {
+                defaultStartingCurrencyField.value = '0';
+            }
+            const defaultFactionCountField = document.getElementById('defaultFactionCount');
+            if (defaultFactionCountField) {
+                defaultFactionCountField.value = String(defaultFactionCountFallback);
+            }
+            const defaultFactionsField = document.getElementById('defaultFactions');
+            if (defaultFactionsField) {
+                defaultFactionsField.value = '[]';
+            }
+            if (settingsFactionEditor) {
+                settingsFactionEditor.clear();
+            }
+            setActiveEditorTab('basics');
+            renderSettingsList();
+            updateSelectedSettingPanel();
+            updatePreview();
+        }
+
+        function updatePreview() {
+            const form = document.getElementById('settingForm');
+            const formData = new FormData(form);
+            
+            const preview = document.getElementById('previewSection');
+            const content = document.getElementById('previewContent');
+            
+            const name = formData.get('name');
+            if (!name) {
+                preview.style.display = 'none';
+                return;
+            }
+            
+            preview.style.display = 'block';
+            
+            const theme = formData.get('theme') || 'Not set';
+            const genre = formData.get('genre') || 'Not set';
+            const tone = formData.get('tone') || 'Not set';
+            const difficulty = formData.get('difficulty') || 'Not set';
+            const magicLevel = formData.get('magicLevel') || 'Not set';
+            const techLevel = formData.get('techLevel') || 'Not set';
+            const classesText = formData.get('availableClasses') || '';
+            const racesText = formData.get('availableRaces') || '';
+            const factionCountRaw = formData.get('defaultFactionCount') || '';
+
+            const classesCount = splitLines(classesText).length;
+            const racesCount = splitLines(racesText).length;
+            const parsedFactionCount = Number.parseInt(factionCountRaw, 10);
+            const extraLines = [];
+            if (classesCount > 0) {
+                extraLines.push(`Classes: ${classesCount}`);
+            }
+            if (racesCount > 0) {
+                extraLines.push(`Races: ${racesCount}`);
+            }
+            if (Number.isFinite(parsedFactionCount) && parsedFactionCount >= 0) {
+                extraLines.push(`Factions: ${parsedFactionCount}`);
+            }
+            
+            content.innerHTML = `
+                <strong>${escapeHtml(name)}</strong><br>
+                <small>${escapeHtml(theme)}/${escapeHtml(genre)} setting with ${escapeHtml(tone)} tone and ${escapeHtml(difficulty)} difficulty</small><br>
+                Magic: ${escapeHtml(magicLevel)} • Tech: ${escapeHtml(techLevel)}${extraLines.length ? `<br>${escapeHtml(extraLines.join(' • '))}` : ''}
+            `;
+        }
+
+        function splitLines(value) {
+            return (value || '')
+                .split(/\r?\n/)
+                .map(line => line.trim())
+                .filter(line => line.length > 0);
+        }
+
+        function parseDefaultFactionsValue(rawValue) {
+            if (rawValue === null || rawValue === undefined || rawValue === '') {
+                return [];
+            }
+            if (Array.isArray(rawValue)) {
+                return rawValue;
+            }
+            if (typeof rawValue !== 'string') {
+                throw new Error('Default factions must be a JSON array string.');
+            }
+            const trimmed = rawValue.trim();
+            if (!trimmed) {
+                return [];
+            }
+            let parsed;
+            try {
+                parsed = JSON.parse(trimmed);
+            } catch (error) {
+                throw new Error(`Default factions JSON is invalid: ${error.message}`);
+            }
+            if (!Array.isArray(parsed)) {
+                throw new Error('Default factions JSON must decode to an array.');
+            }
+            return parsed;
+        }
+
+        function initSettingsFactionEditor() {
+            const hiddenInput = document.getElementById('defaultFactions');
+            const countInput = document.getElementById('defaultFactionCount');
+            const listEl = document.getElementById('settingsFactionList');
+            const emptyEl = document.getElementById('settingsFactionEmpty');
+            const detailEl = document.getElementById('settingsFactionDetail');
+            const placeholderEl = document.getElementById('settingsFactionDetailPlaceholder');
+            const titleEl = document.getElementById('settingsFactionDetailTitle');
+            const metaEl = document.getElementById('settingsFactionDetailMeta');
+            const addButton = document.getElementById('settingsFactionAddBtn');
+            const deleteButton = document.getElementById('settingsFactionDeleteBtn');
+            const applyButton = document.getElementById('settingsFactionApplyBtn');
+            const autofillButton = document.getElementById('settingsFactionAutofillBtn');
+            const generateButton = document.getElementById('settingsFactionGenerateBtn');
+            const generationNotesInput = document.getElementById('settingsFactionGenerationNotes');
+            const nameInput = document.getElementById('settingsFactionName');
+            const homeInput = document.getElementById('settingsFactionHomeRegion');
+            const shortDescriptionInput = document.getElementById('settingsFactionShortDescription');
+            const descriptionInput = document.getElementById('settingsFactionDescription');
+            const tagsInput = document.getElementById('settingsFactionTags');
+            const goalsInput = document.getElementById('settingsFactionGoals');
+            const assetsList = document.getElementById('settingsFactionAssetsList');
+            const relationsList = document.getElementById('settingsFactionRelationsList');
+            const tiersList = document.getElementById('settingsFactionTiersList');
+            const assetAddButton = document.getElementById('settingsFactionAssetAddButton');
+            const tierAddButton = document.getElementById('settingsFactionTierAddButton');
+
+            if (!hiddenInput || !countInput || !listEl || !emptyEl || !detailEl || !placeholderEl
+                || !addButton || !deleteButton || !applyButton || !autofillButton || !generateButton
+                || !nameInput || !homeInput || !shortDescriptionInput || !descriptionInput
+                || !tagsInput || !goalsInput || !assetsList || !relationsList || !tiersList
+                || !assetAddButton || !tierAddButton || !titleEl || !metaEl || !generationNotesInput) {
+                throw new Error('Settings faction editor is missing required elements.');
+            }
+
+            const state = {
+                factions: [],
+                selectedId: null
+            };
+
+            let factionIdCounter = 0;
+            const nextFactionId = () => {
+                factionIdCounter += 1;
+                return `setting_faction_${Date.now()}_${factionIdCounter}`;
+            };
+
+            const splitListValue = (value) => {
+                if (typeof value !== 'string') {
+                    return [];
+                }
+                return value
+                    .split(/[\n,]+/)
+                    .map(entry => entry.trim())
+                    .filter(Boolean);
+            };
+
+            const joinListValue = (entries) => {
+                if (!Array.isArray(entries)) {
+                    return '';
+                }
+                return entries.join('\n');
+            };
+
+            const normalizeRelationStatus = (value) => {
+                const status = typeof value === 'string' ? value.trim().toLowerCase() : '';
+                if (!status) {
+                    return '';
+                }
+                if (!['allied', 'neutral', 'hostile', 'rival'].includes(status)) {
+                    throw new Error(`Invalid relation status "${value}".`);
+                }
+                return status;
+            };
+
+            const syncHiddenValue = () => {
+                hiddenInput.value = JSON.stringify(state.factions);
+            };
+
+            const sanitizeRelationsForCurrentFactions = () => {
+                const validIds = new Set(state.factions.map(faction => faction.id));
+                for (const faction of state.factions) {
+                    const relationMap = faction && faction.relations && typeof faction.relations === 'object'
+                        ? faction.relations
+                        : {};
+                    const cleaned = {};
+                    for (const [targetId, relation] of Object.entries(relationMap)) {
+                        if (!validIds.has(targetId) || targetId === faction.id) {
+                            continue;
+                        }
+                        const status = normalizeRelationStatus(relation?.status);
+                        const notes = typeof relation?.notes === 'string' ? relation.notes.trim() : '';
+                        if (!status || !notes) {
+                            continue;
+                        }
+                        cleaned[targetId] = { status, notes };
+                    }
+                    faction.relations = cleaned;
+                }
+            };
+
+            const buildAssetRow = (asset = {}) => {
+                const row = document.createElement('div');
+                row.className = 'faction-asset-row';
+
+                const nameField = document.createElement('input');
+                nameField.type = 'text';
+                nameField.placeholder = 'Asset name';
+                nameField.value = asset.name || '';
+                nameField.className = 'faction-asset-name';
+
+                const typeField = document.createElement('input');
+                typeField.type = 'text';
+                typeField.placeholder = 'Type';
+                typeField.value = asset.type || '';
+                typeField.className = 'faction-asset-type';
+
+                const descField = document.createElement('textarea');
+                descField.rows = 2;
+                descField.placeholder = 'Short description';
+                descField.value = asset.description || '';
+                descField.className = 'faction-asset-description';
+
+                const removeButton = document.createElement('button');
+                removeButton.type = 'button';
+                removeButton.className = 'btn btn-link btn-sm';
+                removeButton.textContent = 'Remove';
+                removeButton.addEventListener('click', () => row.remove());
+
+                row.appendChild(nameField);
+                row.appendChild(typeField);
+                row.appendChild(descField);
+                row.appendChild(removeButton);
+                return row;
+            };
+
+            const buildTierRow = (tier = {}) => {
+                const row = document.createElement('div');
+                row.className = 'faction-tier-row';
+
+                const thresholdField = document.createElement('input');
+                thresholdField.type = 'number';
+                thresholdField.placeholder = 'Threshold';
+                thresholdField.value = Number.isFinite(Number(tier.threshold)) ? tier.threshold : '';
+                thresholdField.className = 'faction-tier-threshold';
+
+                const labelField = document.createElement('input');
+                labelField.type = 'text';
+                labelField.placeholder = 'Label';
+                labelField.value = tier.label || '';
+                labelField.className = 'faction-tier-label';
+
+                const perksField = document.createElement('textarea');
+                perksField.rows = 2;
+                perksField.placeholder = 'Perks (one per line)';
+                perksField.value = joinListValue(tier.perks || []);
+                perksField.className = 'faction-tier-perks';
+
+                const penaltiesField = document.createElement('textarea');
+                penaltiesField.rows = 2;
+                penaltiesField.placeholder = 'Penalties (one per line)';
+                penaltiesField.value = joinListValue(tier.penalties || []);
+                penaltiesField.className = 'faction-tier-penalties';
+
+                const removeButton = document.createElement('button');
+                removeButton.type = 'button';
+                removeButton.className = 'btn btn-link btn-sm';
+                removeButton.textContent = 'Remove';
+                removeButton.addEventListener('click', () => row.remove());
+
+                row.appendChild(thresholdField);
+                row.appendChild(labelField);
+                row.appendChild(perksField);
+                row.appendChild(penaltiesField);
+                row.appendChild(removeButton);
+                return row;
+            };
+
+            const buildRelationRow = (targetFaction, relation) => {
+                const row = document.createElement('div');
+                row.className = 'faction-relation-row';
+                row.dataset.targetId = targetFaction.id;
+
+                const nameField = document.createElement('div');
+                nameField.className = 'faction-relation-name';
+                nameField.textContent = targetFaction.name || targetFaction.id;
+
+                const statusField = document.createElement('select');
+                statusField.className = 'faction-relation-status';
+                [
+                    { value: '', label: 'None' },
+                    { value: 'allied', label: 'Allied' },
+                    { value: 'neutral', label: 'Neutral' },
+                    { value: 'hostile', label: 'Hostile' },
+                    { value: 'rival', label: 'Rival' }
+                ].forEach(option => {
+                    const opt = document.createElement('option');
+                    opt.value = option.value;
+                    opt.textContent = option.label;
+                    statusField.appendChild(opt);
+                });
+                statusField.value = relation?.status || '';
+
+                const notesField = document.createElement('textarea');
+                notesField.rows = 2;
+                notesField.placeholder = 'Relationship notes';
+                notesField.className = 'faction-relation-notes';
+                notesField.value = relation?.notes || '';
+                notesField.disabled = !statusField.value;
+
+                statusField.addEventListener('change', () => {
+                    const hasStatus = Boolean(statusField.value);
+                    notesField.disabled = !hasStatus;
+                    if (!hasStatus) {
+                        notesField.value = '';
+                    }
+                });
+
+                const clearButton = document.createElement('button');
+                clearButton.type = 'button';
+                clearButton.className = 'btn btn-link btn-sm';
+                clearButton.textContent = 'Clear';
+                clearButton.addEventListener('click', () => {
+                    statusField.value = '';
+                    notesField.value = '';
+                    notesField.disabled = true;
+                });
+
+                row.appendChild(nameField);
+                row.appendChild(statusField);
+                row.appendChild(notesField);
+                row.appendChild(clearButton);
+                return row;
+            };
+
+            const renderList = () => {
+                listEl.innerHTML = '';
+                if (!Array.isArray(state.factions) || state.factions.length === 0) {
+                    emptyEl.style.display = 'block';
+                    return;
+                }
+                emptyEl.style.display = 'none';
+
+                state.factions.forEach(faction => {
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = 'faction-list-item';
+                    if (faction.id === state.selectedId) {
+                        button.classList.add('active');
+                    }
+
+                    const name = document.createElement('div');
+                    name.className = 'faction-list-name';
+                    name.textContent = faction.name || 'Unnamed Faction';
+
+                    const tags = document.createElement('div');
+                    tags.className = 'faction-list-tags';
+                    tags.textContent = Array.isArray(faction.tags) && faction.tags.length
+                        ? faction.tags.join(' · ')
+                        : 'No tags';
+
+                    button.appendChild(name);
+                    button.appendChild(tags);
+                    button.addEventListener('click', () => {
+                        state.selectedId = faction.id;
+                        renderList();
+                        renderDetail();
+                    });
+                    listEl.appendChild(button);
+                });
+            };
+
+            const renderDetail = () => {
+                const selected = state.factions.find(faction => faction.id === state.selectedId) || null;
+                if (!selected) {
+                    detailEl.setAttribute('hidden', '');
+                    placeholderEl.removeAttribute('hidden');
+                    if (titleEl) titleEl.textContent = 'Faction';
+                    if (metaEl) metaEl.textContent = '';
+                    return;
+                }
+
+                placeholderEl.setAttribute('hidden', '');
+                detailEl.removeAttribute('hidden');
+
+                titleEl.textContent = selected.name || 'Faction';
+                metaEl.textContent = selected.id ? `ID: ${selected.id}` : '';
+
+                nameInput.value = selected.name || '';
+                homeInput.value = selected.homeRegionName || '';
+                shortDescriptionInput.value = selected.shortDescription || '';
+                descriptionInput.value = selected.description || '';
+                tagsInput.value = joinListValue(selected.tags || []);
+                goalsInput.value = joinListValue(selected.goals || []);
+
+                assetsList.innerHTML = '';
+                if (Array.isArray(selected.assets) && selected.assets.length > 0) {
+                    selected.assets.forEach(asset => assetsList.appendChild(buildAssetRow(asset)));
+                } else {
+                    assetsList.appendChild(buildAssetRow());
+                }
+
+                relationsList.innerHTML = '';
+                const others = state.factions.filter(faction => faction.id !== selected.id);
+                if (!others.length) {
+                    const empty = document.createElement('div');
+                    empty.className = 'faction-relation-empty';
+                    empty.textContent = 'No other factions to relate to yet.';
+                    relationsList.appendChild(empty);
+                } else {
+                    const relationMap = selected.relations && typeof selected.relations === 'object'
+                        ? selected.relations
+                        : {};
+                    others.forEach(other => {
+                        relationsList.appendChild(buildRelationRow(other, relationMap[other.id] || null));
+                    });
+                }
+
+                tiersList.innerHTML = '';
+                if (Array.isArray(selected.reputationTiers) && selected.reputationTiers.length > 0) {
+                    selected.reputationTiers.forEach(tier => tiersList.appendChild(buildTierRow(tier)));
+                } else {
+                    tiersList.appendChild(buildTierRow());
+                }
+            };
+
+            const collectAssetsFrom = (container) => {
+                const rows = Array.from(container.querySelectorAll('.faction-asset-row'));
+                return rows.map(row => {
+                    const name = row.querySelector('.faction-asset-name')?.value?.trim() || '';
+                    const type = row.querySelector('.faction-asset-type')?.value?.trim() || '';
+                    const description = row.querySelector('.faction-asset-description')?.value?.trim() || '';
+                    if (!name && !type && !description) {
+                        return null;
+                    }
+                    if (!name) {
+                        throw new Error('All faction assets must include a name.');
+                    }
+                    const asset = { name };
+                    if (type) asset.type = type;
+                    if (description) asset.description = description;
+                    return asset;
+                }).filter(Boolean);
+            };
+
+            const collectRelationsFrom = (container) => {
+                const rows = Array.from(container.querySelectorAll('.faction-relation-row'));
+                const relations = {};
+                rows.forEach(row => {
+                    const targetId = row.dataset.targetId || '';
+                    const statusRaw = row.querySelector('.faction-relation-status')?.value || '';
+                    const status = normalizeRelationStatus(statusRaw);
+                    const notes = row.querySelector('.faction-relation-notes')?.value?.trim() || '';
+                    if (!status) {
+                        return;
+                    }
+                    if (!notes) {
+                        throw new Error('All faction relations with a status require notes.');
+                    }
+                    relations[targetId] = { status, notes };
+                });
+                return relations;
+            };
+
+            const collectTiersFrom = (container) => {
+                const rows = Array.from(container.querySelectorAll('.faction-tier-row'));
+                return rows.map(row => {
+                    const thresholdRaw = row.querySelector('.faction-tier-threshold')?.value?.trim() || '';
+                    const label = row.querySelector('.faction-tier-label')?.value?.trim() || '';
+                    const perks = splitListValue(row.querySelector('.faction-tier-perks')?.value || '');
+                    const penalties = splitListValue(row.querySelector('.faction-tier-penalties')?.value || '');
+                    if (!thresholdRaw && !label && perks.length === 0 && penalties.length === 0) {
+                        return null;
+                    }
+                    const threshold = Number(thresholdRaw);
+                    if (!Number.isFinite(threshold)) {
+                        throw new Error('Faction reputation tier thresholds must be numeric.');
+                    }
+                    return {
+                        threshold,
+                        label,
+                        perks,
+                        penalties
+                    };
+                }).filter(Boolean);
+            };
+
+            const buildSelectedPayload = ({ allowBlankName = false } = {}) => {
+                const rawName = nameInput.value.trim();
+                if (!allowBlankName && !rawName) {
+                    throw new Error('Faction name is required.');
+                }
+                const shortDescription = shortDescriptionInput.value.trim();
+                const description = descriptionInput.value.trim();
+                return {
+                    name: rawName,
+                    homeRegionName: homeInput.value.trim() || null,
+                    shortDescription: shortDescription || null,
+                    description: description || null,
+                    tags: splitListValue(tagsInput.value),
+                    goals: splitListValue(goalsInput.value),
+                    assets: collectAssetsFrom(assetsList),
+                    relations: collectRelationsFrom(relationsList),
+                    reputationTiers: collectTiersFrom(tiersList)
+                };
+            };
+
+            const commitCurrentFaction = ({ allowBlankName = false } = {}) => {
+                if (!state.selectedId) {
+                    return null;
+                }
+                const index = state.factions.findIndex(entry => entry.id === state.selectedId);
+                if (index < 0) {
+                    return null;
+                }
+                const payload = buildSelectedPayload({ allowBlankName });
+                state.factions[index] = {
+                    id: state.selectedId,
+                    ...payload
+                };
+                sanitizeRelationsForCurrentFactions();
+                syncHiddenValue();
+                renderList();
+                renderDetail();
+                updatePreview();
+                return state.factions[index];
+            };
+
+            const load = (factions) => {
+                const incoming = parseDefaultFactionsValue(factions);
+                const seenIds = new Set();
+                state.factions = incoming
+                    .filter(entry => entry && typeof entry === 'object' && !Array.isArray(entry))
+                    .map((entry, index) => {
+                        const providedId = typeof entry.id === 'string' ? entry.id.trim() : '';
+                        let id = providedId || nextFactionId();
+                        while (seenIds.has(id)) {
+                            id = nextFactionId();
+                        }
+                        seenIds.add(id);
+                        const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+                        const shortDescription = typeof entry.shortDescription === 'string' ? entry.shortDescription.trim() : '';
+                        const description = typeof entry.description === 'string' ? entry.description.trim() : '';
+                        const homeRegionName = typeof entry.homeRegionName === 'string' ? entry.homeRegionName.trim() : '';
+
+                        return {
+                            id,
+                            name: name || `Faction ${index + 1}`,
+                            homeRegionName: homeRegionName || null,
+                            shortDescription: shortDescription || null,
+                            description: description || null,
+                            tags: Array.isArray(entry.tags)
+                                ? splitListValue(entry.tags.join('\n'))
+                                : splitListValue(typeof entry.tags === 'string' ? entry.tags : ''),
+                            goals: Array.isArray(entry.goals)
+                                ? splitListValue(entry.goals.join('\n'))
+                                : splitListValue(typeof entry.goals === 'string' ? entry.goals : ''),
+                            assets: Array.isArray(entry.assets) ? entry.assets : [],
+                            relations: entry.relations && typeof entry.relations === 'object' ? { ...entry.relations } : {},
+                            reputationTiers: Array.isArray(entry.reputationTiers) ? entry.reputationTiers : []
+                        };
+                    });
+
+                sanitizeRelationsForCurrentFactions();
+                state.selectedId = state.factions.length ? state.factions[0].id : null;
+                syncHiddenValue();
+                renderList();
+                renderDetail();
+                updatePreview();
+            };
+
+            const clear = () => load([]);
+
+            addButton.addEventListener('click', () => {
+                const nextNumber = state.factions.length + 1;
+                const faction = {
+                    id: nextFactionId(),
+                    name: `Faction ${nextNumber}`,
+                    homeRegionName: null,
+                    shortDescription: null,
+                    description: null,
+                    tags: [],
+                    goals: [],
+                    assets: [],
+                    relations: {},
+                    reputationTiers: []
+                };
+                state.factions.push(faction);
+                state.selectedId = faction.id;
+                sanitizeRelationsForCurrentFactions();
+                syncHiddenValue();
+                renderList();
+                renderDetail();
+                updatePreview();
+            });
+
+            deleteButton.addEventListener('click', () => {
+                if (!state.selectedId) {
+                    showMessage('Select a faction first.', 'error');
+                    return;
+                }
+                const selected = state.factions.find(entry => entry.id === state.selectedId);
+                if (!selected) {
+                    return;
+                }
+                const confirmed = window.confirm(`Delete faction "${selected.name || selected.id}"?`);
+                if (!confirmed) {
+                    return;
+                }
+                state.factions = state.factions.filter(entry => entry.id !== state.selectedId);
+                sanitizeRelationsForCurrentFactions();
+                state.selectedId = state.factions.length ? state.factions[0].id : null;
+                syncHiddenValue();
+                renderList();
+                renderDetail();
+                updatePreview();
+            });
+
+            applyButton.addEventListener('click', () => {
+                try {
+                    commitCurrentFaction();
+                    showMessage('Faction edits applied.', 'success');
+                } catch (error) {
+                    showMessage(error?.message || 'Failed to apply faction edits.', 'error');
+                }
+            });
+
+            assetAddButton.addEventListener('click', () => {
+                assetsList.appendChild(buildAssetRow());
+            });
+
+            tierAddButton.addEventListener('click', () => {
+                tiersList.appendChild(buildTierRow());
+            });
+
+            autofillButton.addEventListener('click', async () => {
+                if (!state.selectedId) {
+                    showMessage('Select a faction first.', 'error');
+                    return;
+                }
+                const selectedIndex = state.factions.findIndex(entry => entry.id === state.selectedId);
+                if (selectedIndex < 0) {
+                    showMessage('Selected faction no longer exists.', 'error');
+                    return;
+                }
+
+                const selectedFactionId = state.selectedId;
+                const selectedFactionName = state.factions[selectedIndex]?.name || 'Faction';
+                let draftPayload;
+                try {
+                    draftPayload = buildSelectedPayload({ allowBlankName: true });
+                } catch (error) {
+                    showMessage(error?.message || 'Failed to read faction draft.', 'error');
+                    return;
+                }
+
+                const settingDescription = document.getElementById('description')?.value?.trim() || '';
+                const existingFactions = state.factions
+                    .filter(entry => entry.id !== selectedFactionId)
+                    .map(entry => ({
+                        id: entry.id,
+                        name: entry.name,
+                        shortDescription: entry.shortDescription || ''
+                    }));
+                const generationNotes = generationNotesInput.value.trim();
+
+                autofillButton.disabled = true;
+                const originalText = autofillButton.textContent;
+                autofillButton.textContent = '✨ Filling...';
+                try {
+                    const response = await fetch('/api/settings/factions/fill-missing', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            faction: draftPayload,
+                            existingFactions,
+                            settingDescription,
+                            generationNotes
+                        })
+                    });
+                    const data = await response.json().catch(() => ({}));
+                    if (!response.ok || !data?.success || !data?.faction) {
+                        throw new Error(data?.error || 'Failed to auto-fill faction fields.');
+                    }
+                    state.factions[selectedIndex] = {
+                        id: selectedFactionId,
+                        ...data.faction
+                    };
+                    sanitizeRelationsForCurrentFactions();
+                    syncHiddenValue();
+                    renderList();
+                    renderDetail();
+                    showMessage(`Auto-filled missing fields for "${selectedFactionName}".`, 'success');
+                } catch (error) {
+                    showMessage(error?.message || 'Failed to auto-fill faction fields.', 'error');
+                } finally {
+                    autofillButton.disabled = false;
+                    autofillButton.textContent = originalText;
+                }
+            });
+
+            generateButton.addEventListener('click', async () => {
+                const rawCount = countInput.value.trim();
+                const parsedCount = Number.parseInt(rawCount, 10);
+                if (!Number.isFinite(parsedCount) || parsedCount < 0) {
+                    showMessage('Default faction count must be a non-negative integer.', 'error');
+                    return;
+                }
+
+                generateButton.disabled = true;
+                const originalText = generateButton.textContent;
+                generateButton.textContent = 'Generating...';
+                try {
+                    const settingDescription = document.getElementById('description')?.value?.trim() || '';
+                    const generationNotes = generationNotesInput.value.trim();
+                    const response = await fetch('/api/settings/factions/generate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            count: parsedCount,
+                            settingDescription,
+                            generationNotes
+                        })
+                    });
+                    const data = await response.json().catch(() => ({}));
+                    if (!response.ok || !data?.success || !Array.isArray(data.factions)) {
+                        throw new Error(data?.error || 'Failed to generate factions.');
+                    }
+                    load(data.factions);
+                    showMessage(`Generated ${data.factions.length} faction(s) for this setting.`, 'success');
+                } catch (error) {
+                    showMessage(error?.message || 'Failed to generate factions.', 'error');
+                } finally {
+                    generateButton.disabled = false;
+                    generateButton.textContent = originalText;
+                }
+            });
+
+            if (!countInput.value || !countInput.value.trim()) {
+                countInput.value = String(defaultFactionCountFallback);
+            }
+            load(parseDefaultFactionsValue(hiddenInput.value));
+
+            return {
+                load,
+                clear,
+                commitCurrentFaction,
+                getFactionCount() {
+                    return state.factions.length;
+                }
+            };
+        }
+
+        function setupEventListeners() {
+            const settingForm = document.getElementById('settingForm');
+            if (!settingForm) {
+                throw new Error('Expected element "settingForm" to exist.');
+            }
+
+            const settingsListEl = document.getElementById('settingsList');
+            const settingsSearchEl = document.getElementById('settingsSearch');
+            const settingsSortEl = document.getElementById('settingsSort');
+            const newSettingBtn = document.getElementById('newSettingBtn');
+            const selectedEditBtn = document.getElementById('selectedEditBtn');
+            const selectedApplyBtn = document.getElementById('selectedApplyBtn');
+            const selectedCloneBtn = document.getElementById('selectedCloneBtn');
+            const selectedDeleteBtn = document.getElementById('selectedDeleteBtn');
+
+            if (!settingsListEl || !settingsSearchEl || !settingsSortEl || !newSettingBtn) {
+                throw new Error('Library controls are missing from the settings page.');
+            }
+            if (!selectedEditBtn || !selectedApplyBtn || !selectedCloneBtn || !selectedDeleteBtn) {
+                throw new Error('Selected-setting action controls are missing from the settings page.');
+            }
+
+            settingForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+
+                if (settingsFactionEditor) {
+                    try {
+                        settingsFactionEditor.commitCurrentFaction();
+                    } catch (error) {
+                        showMessage(error?.message || 'Fix faction fields before saving this setting.', 'error');
+                        return;
+                    }
+                }
+                
+                const formData = new FormData(e.target);
+                const settingData = Object.fromEntries(formData.entries());
+
+                // Convert playerStartingLevel to number
+                settingData.playerStartingLevel = parseInt(settingData.playerStartingLevel) || 1;
+                const parsedDefaultCurrency = parseInt(settingData.defaultStartingCurrency, 10);
+                settingData.defaultStartingCurrency = Number.isFinite(parsedDefaultCurrency) ? Math.max(0, parsedDefaultCurrency) : 0;
+                const defaultExistingSkillsText = settingData.defaultExistingSkills || '';
+                settingData.defaultExistingSkills = splitLines(defaultExistingSkillsText);
+                settingData.availableClasses = splitLines(settingData.availableClasses);
+                settingData.availableRaces = splitLines(settingData.availableRaces);
+                settingData.customSlopWords = splitLines(settingData.customSlopWords);
+                const parsedDefaultFactionCount = parseInt(settingData.defaultFactionCount, 10);
+                if ((settingData.defaultFactionCount || '').trim() === '') {
+                    settingData.defaultFactionCount = '';
+                } else if (Number.isFinite(parsedDefaultFactionCount) && parsedDefaultFactionCount >= 0) {
+                    settingData.defaultFactionCount = parsedDefaultFactionCount;
+                } else {
+                    showMessage('Default faction count must be a non-negative integer.', 'error');
+                    return;
+                }
+                try {
+                    settingData.defaultFactions = parseDefaultFactionsValue(settingData.defaultFactions);
+                } catch (error) {
+                    showMessage(error?.message || 'Default factions JSON is invalid.', 'error');
+                    return;
+                }
+                
+                try {
+                    let response;
+                    let requestSettingId = null;
+                    if (isEditMode) {
+                        const settingId = settingData.id;
+                        requestSettingId = settingId;
+                        delete settingData.id;
+                        response = await fetch(`/api/settings/${settingId}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(settingData)
+                        });
+                    } else {
+                        response = await fetch('/api/settings', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(settingData)
+                        });
+                    }
+
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        const savedId = (data.setting && data.setting.id)
+                            ? data.setting.id
+                            : requestSettingId;
+
+                        let appliedSuccessfully = false;
+
+                        // Auto-save the created/updated setting to file
+                        if (savedId) {
+                            try {
+                                const saveResp = await fetch(`/api/settings/${savedId}/save`, { method: 'POST' });
+                                const saveData = await saveResp.json();
+                                if (!saveData.success) {
+                                    console.warn('Auto-save failed:', saveData.error);
+                                }
+                            } catch (saveErr) {
+                                console.warn('Auto-save failed:', saveErr.message);
+                            }
+
+                            // Apply the setting immediately so the game uses the latest version
+                            try {
+                                const applyResp = await fetch(`/api/settings/${savedId}/apply`, { method: 'POST' });
+                                const applyData = await applyResp.json();
+                                if (applyData.success) {
+                                    appliedSuccessfully = true;
+                                    appliedSetting = applyData.setting;
+                                    updateCurrentSettingDisplay();
+                                } else {
+                                    console.warn('Auto-apply failed:', applyData.error);
+                                }
+                            } catch (applyErr) {
+                                console.warn('Auto-apply failed:', applyErr.message);
+                            }
+                        }
+
+                        const successMessage = `Setting ${isEditMode ? 'updated' : 'created'} successfully${appliedSuccessfully ? ' and applied to the game world' : ''}!`;
+                        showMessage(successMessage, 'success');
+                        clearForm();
+                        await refreshSettingsList();
+                        await loadCurrentSetting();
+                    } else {
+                        showMessage(`Error ${isEditMode ? 'updating' : 'creating'} setting: ` + data.error, 'error');
+                    }
+                } catch (error) {
+                    showMessage(`Error ${isEditMode ? 'updating' : 'creating'} setting: ` + error.message, 'error');
+                }
+            });
+
+            document.getElementById('clearBtn').addEventListener('click', clearForm);
+
+            settingsListEl.addEventListener('click', (event) => {
+                const button = event.target.closest('.setting-item[data-setting-id]');
+                if (!button || !settingsListEl.contains(button)) {
+                    return;
+                }
+                const settingId = button.dataset.settingId;
+                if (!settingId) {
+                    throw new Error('Setting list item is missing data-setting-id.');
+                }
+                selectSetting(settingId);
+            });
+
+            settingsSearchEl.addEventListener('input', (event) => {
+                settingsSearchQuery = (event.target.value || '').trim();
+                renderSettingsList();
+                updateSelectedSettingPanel();
+            });
+
+            settingsSortEl.addEventListener('change', (event) => {
+                settingsSortMode = event.target.value || 'applied-first';
+                renderSettingsList();
+                updateSelectedSettingPanel();
+            });
+
+            newSettingBtn.addEventListener('click', () => {
+                clearForm();
+                const nameInput = document.getElementById('name');
+                if (nameInput) {
+                    nameInput.focus();
+                }
+            });
+
+            selectedEditBtn.addEventListener('click', () => {
+                const selected = getSelectedSetting();
+                if (!selected || !selected.id) {
+                    showMessage('Select a setting first.', 'error');
+                    return;
+                }
+                editSetting(selected.id);
+            });
+
+            selectedApplyBtn.addEventListener('click', async () => {
+                const selected = getSelectedSetting();
+                if (!selected || !selected.id) {
+                    showMessage('Select a setting first.', 'error');
+                    return;
+                }
+                await applySetting(selected.id);
+            });
+
+            selectedCloneBtn.addEventListener('click', async () => {
+                const selected = getSelectedSetting();
+                if (!selected || !selected.id) {
+                    showMessage('Select a setting first.', 'error');
+                    return;
+                }
+                await cloneSetting(selected.id);
+            });
+
+            selectedDeleteBtn.addEventListener('click', async () => {
+                const selected = getSelectedSetting();
+                if (!selected || !selected.id) {
+                    showMessage('Select a setting first.', 'error');
+                    return;
+                }
+                await deleteSetting(selected.id);
+            });
+
+            document.querySelectorAll('.editor-tab-btn').forEach((button) => {
+                button.addEventListener('click', () => {
+                    const tabId = button.dataset.editorTab;
+                    if (!tabId) {
+                        throw new Error('Editor tab button is missing data-editor-tab.');
+                    }
+                    setActiveEditorTab(tabId);
+                });
+            });
+
+            settingForm.addEventListener('input', updatePreview);
+            settingForm.addEventListener('change', updatePreview);
+
+            const generateBtn = document.getElementById('generateBtn');
+            if (generateBtn) {
+                generateBtn.addEventListener('click', () => openAutofillInstructionsModal(generateBtn));
+            }
+
+            if (autofillInstructionsCancelBtn) {
+                autofillInstructionsCancelBtn.addEventListener('click', () => closeAutofillInstructionsModal());
+            }
+            if (autofillInstructionsCloseBtn) {
+                autofillInstructionsCloseBtn.addEventListener('click', () => closeAutofillInstructionsModal());
+            }
+            if (autofillInstructionsConfirmBtn) {
+                autofillInstructionsConfirmBtn.addEventListener('click', async () => {
+                    const instructions = autofillInstructionsInput?.value?.trim() || '';
+                    const imageFile = autofillImageInput?.files?.[0] || null;
+                    if (imageFile && !imageFile.type.startsWith('image/')) {
+                        showMessage('Autofill image must be an image file.', 'error');
+                        return;
+                    }
+                    const targetButton = pendingAutofillButton || generateBtn;
+                    closeAutofillInstructionsModal();
+                    if (targetButton) {
+                        handleGenerateFill(targetButton, instructions, imageFile);
+                    }
+                });
+            }
+
+            setActiveEditorTab(activeEditorTab);
+            updateSelectedSettingPanel();
+        }
+
+        async function downscaleImageDataUrl(dataUrl, outputType) {
+            const maxPixels = 2000000;
+            return new Promise((resolve, reject) => {
+                const image = new Image();
+                image.onload = () => {
+                    const width = image.naturalWidth || image.width;
+                    const height = image.naturalHeight || image.height;
+                    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+                        reject(new Error('Autofill image dimensions are invalid.'));
+                        return;
+                    }
+
+                    const pixelCount = width * height;
+                    if (pixelCount <= maxPixels) {
+                        resolve(dataUrl);
+                        return;
+                    }
+
+                    const scale = Math.sqrt(maxPixels / pixelCount);
+                    const targetWidth = Math.max(1, Math.round(width * scale));
+                    const targetHeight = Math.max(1, Math.round(height * scale));
+                    const canvas = document.createElement('canvas');
+                    canvas.width = targetWidth;
+                    canvas.height = targetHeight;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) {
+                        reject(new Error('Autofill image resizing failed to initialize.'));
+                        return;
+                    }
+                    ctx.drawImage(image, 0, 0, targetWidth, targetHeight);
+
+                    const normalizedType = outputType && outputType.startsWith('image/')
+                        ? outputType
+                        : 'image/jpeg';
+                    const supportsQuality = normalizedType === 'image/jpeg' || normalizedType === 'image/webp';
+                    const resizedDataUrl = supportsQuality
+                        ? canvas.toDataURL(normalizedType, 0.9)
+                        : canvas.toDataURL(normalizedType);
+                    resolve(resizedDataUrl);
+                };
+                image.onerror = () => reject(new Error('Autofill image could not be loaded.'));
+                image.src = dataUrl;
+            });
+        }
+
+        async function readAutofillImageData(file) {
+            if (!file) {
+                return '';
+            }
+            if (!file.type || !file.type.startsWith('image/')) {
+                throw new Error('Autofill image must be an image file.');
+            }
+            const dataUrl = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    if (typeof reader.result === 'string') {
+                        resolve(reader.result);
+                        return;
+                    }
+                    reject(new Error('Autofill image could not be read.'));
+                };
+                reader.onerror = () => reject(new Error('Autofill image could not be read.'));
+                reader.readAsDataURL(file);
+            });
+            return downscaleImageDataUrl(dataUrl, file.type);
+        }
+
+        async function handleGenerateFill(buttonEl, instructions = '', imageFile = null) {
+            if (!buttonEl || buttonEl.disabled) {
+                return;
+            }
+
+            buttonEl.disabled = true;
+            const originalText = buttonEl.textContent;
+            buttonEl.textContent = '✨ Generating...';
+
+            try {
+                const instructionsText = typeof instructions === 'string' ? instructions.trim() : '';
+                const imageDataUrl = await readAutofillImageData(imageFile);
+                const form = document.getElementById('settingForm');
+                const formData = new FormData(form);
+                const settingPayload = Object.fromEntries(formData.entries());
+                if (settingsFactionEditor) {
+                    settingsFactionEditor.commitCurrentFaction({ allowBlankName: true });
+                }
+                settingPayload.playerStartingLevel = settingPayload.playerStartingLevel || '';
+                const rawSkillsText = settingPayload.defaultExistingSkills || '';
+                const currentSkills = splitLines(rawSkillsText);
+                const defaultSkillsList = getDefaultExistingSkillsList();
+                const defaultSkillSet = new Set(
+                    defaultSkillsList.map(skill => skill.toLowerCase())
+                );
+                const hasOnlyDefaultSkills = currentSkills.length > 0
+                    && currentSkills.every(skill => defaultSkillSet.has(skill.toLowerCase()));
+                const shouldAugmentSkills = defaultSkillsList.length > 0
+                    && (currentSkills.length === 0 || hasOnlyDefaultSkills);
+                const skillsForPrompt = (shouldAugmentSkills && currentSkills.length === 0)
+                    ? defaultSkillsList
+                    : currentSkills;
+
+                settingPayload.defaultExistingSkills = skillsForPrompt;
+                settingPayload.availableClasses = splitLines(settingPayload.availableClasses);
+                settingPayload.availableRaces = splitLines(settingPayload.availableRaces);
+                settingPayload.customSlopWords = splitLines(settingPayload.customSlopWords);
+                const parsedDefaultCurrency = parseInt(settingPayload.defaultStartingCurrency, 10);
+                settingPayload.defaultStartingCurrency = Number.isFinite(parsedDefaultCurrency)
+                    ? Math.max(0, parsedDefaultCurrency)
+                    : '';
+                const parsedDefaultFactionCount = parseInt(settingPayload.defaultFactionCount, 10);
+                settingPayload.defaultFactionCount = Number.isFinite(parsedDefaultFactionCount) && parsedDefaultFactionCount >= 0
+                    ? parsedDefaultFactionCount
+                    : '';
+                settingPayload.defaultFactions = parseDefaultFactionsValue(settingPayload.defaultFactions);
+
+                const requestBody = {
+                    setting: settingPayload,
+                    instructions: instructionsText
+                };
+                if (shouldAugmentSkills) {
+                    requestBody.augmentDefaultSkills = true;
+                }
+                if (imageDataUrl) {
+                    requestBody.imageDataUrl = imageDataUrl;
+                }
+
+                const response = await fetch('/api/settings/fill-missing', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+
+                const data = await response.json();
+
+                if (!response.ok || !data?.success) {
+                    const errorMessage = data?.error || `Unexpected error (${response.status})`;
+                    showMessage('Generation failed: ' + errorMessage, 'error');
+                    return;
+                }
+
+                const filled = data.setting || {};
+                const applyText = (fieldId, value) => {
+                    const field = document.getElementById(fieldId);
+                    if (!field || value === undefined || value === null) {
+                        return;
+                    }
+                    if (Array.isArray(value)) {
+                        field.value = value.join('\n');
+                    } else {
+                        field.value = value;
+                    }
+                };
+
+                Object.entries({
+                    name: filled.name,
+                    description: filled.description,
+                    theme: filled.theme,
+                    genre: filled.genre,
+                    startingLocationType: filled.startingLocationType,
+                    magicLevel: filled.magicLevel,
+                    techLevel: filled.techLevel,
+                    tone: filled.tone,
+                    difficulty: filled.difficulty,
+                    currencyName: filled.currencyName,
+                    currencyNamePlural: filled.currencyNamePlural,
+                    playerStartingLevel: filled.playerStartingLevel,
+                    defaultPlayerName: filled.defaultPlayerName,
+                    defaultPlayerDescription: filled.defaultPlayerDescription,
+                    defaultStartingLocation: filled.defaultStartingLocation,
+                    defaultStartingCurrency: filled.defaultStartingCurrency,
+                    defaultExistingSkills: filled.defaultExistingSkills,
+                    defaultFactionCount: filled.defaultFactionCount,
+                    availableClasses: filled.availableClasses,
+                    availableRaces: filled.availableRaces,
+                    currencyValueNotes: filled.currencyValueNotes,
+                    writingStyleNotes: filled.writingStyleNotes,
+                    baseContextPreamble: filled.baseContextPreamble,
+                    characterGenInstructions: filled.characterGenInstructions,
+                    customSlopWords: filled.customSlopWords,
+                    imagePromptPrefixCharacter: filled.imagePromptPrefixCharacter,
+                    imagePromptPrefixLocation: filled.imagePromptPrefixLocation,
+                    imagePromptPrefixItem: filled.imagePromptPrefixItem,
+                    imagePromptPrefixScenery: filled.imagePromptPrefixScenery
+                }).forEach(([fieldId, value]) => applyText(fieldId, value));
+                if (settingsFactionEditor && Array.isArray(filled.defaultFactions)) {
+                    settingsFactionEditor.load(filled.defaultFactions);
+                }
+
+                showMessage('Blank fields populated successfully.', 'success');
+                updatePreview();
+            } catch (error) {
+                showMessage('Generation failed: ' + (error?.message || error), 'error');
+            } finally {
+                buttonEl.disabled = false;
+                buttonEl.textContent = originalText;
+            }
+        }
+
+        function showMessage(message, type) {
+            const messageEl = document.getElementById('statusMessage');
+            messageEl.textContent = message;
+            messageEl.className = `status-message status-${type}`;
+            messageEl.style.display = 'block';
+            
+            setTimeout(() => {
+                messageEl.style.display = 'none';
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

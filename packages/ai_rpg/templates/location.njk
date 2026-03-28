@@ -1,0 +1,64 @@
+### {{ location.name }}
+
+- Region: {{ location.regionName | default('Unknown', true) }}
+- Base Level: {{ location.baseLevel | default(1, true) }}
+- Stub: {{ location.isStub | default(false) }}
+{% if location.controllingFactionName %}
+- Controlling Faction: {{ location.controllingFactionName }}
+{% endif %}
+
+{% if location.shortDescription %}
+**Short Description**
+{{ location.shortDescription }}
+
+{% endif %}
+{% if location.description %}
+**Description**
+{{ location.description }}
+
+{% endif %}
+
+**Exits**
+{% if location.exits and location.exits.length %}
+{% for exit in location.exits %}
+- {{ exit.direction | default('', true) }} -> {{ exit.destinationName | default('Unknown destination', true) }}{% if exit.destinationRegionName %} (region: {{ exit.destinationRegionName }}){% endif %}{% if exit.isVehicle %} [vehicle{% if exit.vehicleType %}: {{ exit.vehicleType }}{% endif %}]{% endif %}
+{% endfor %}
+{% else %}
+- None
+{% endif %}
+
+**NPCs**
+{% if location.npcs and location.npcs.length %}
+{% for npc in location.npcs %}
+- {{ npc.name | default('Unknown', true) }} ({{ npc.class | default('Unknown', true) }}/{{ npc.race | default('Unknown', true) }}, L{{ npc.level | default(1, true) }}){% if npc.summary %}: {{ npc.summary }}{% endif %}
+{% endfor %}
+{% else %}
+- None
+{% endif %}
+
+**Items**
+{% if location.items and location.items.length %}
+{% for item in location.items %}
+- {{ item.name | default('Unknown', true) }} ({{ item.rarity | default('common', true) }}, L{{ item.level | default(1, true) }}){% if item.summary %}: {{ item.summary }}{% endif %}
+{% endfor %}
+{% else %}
+- None
+{% endif %}
+
+**Scenery**
+{% if location.scenery and location.scenery.length %}
+{% for scenery in location.scenery %}
+- {{ scenery.name | default('Unknown', true) }} ({{ scenery.rarity | default('common', true) }}, L{{ scenery.level | default(1, true) }}){% if scenery.summary %}: {{ scenery.summary }}{% endif %}
+{% endfor %}
+{% else %}
+- None
+{% endif %}
+
+**Status Effects**
+{% if location.statusEffects and location.statusEffects.length %}
+{% for effect in location.statusEffects %}
+- {{ effect.description }} (duration: {{ effect.duration | default('unknown', true) }})
+{% endfor %}
+{% else %}
+- None
+{% endif %}

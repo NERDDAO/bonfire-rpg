@@ -1,0 +1,120 @@
+<context>
+Here is a list of all character attributes:
+{% for attrName, attrDef in attributeDefinitions %}- {{ attrName }}: {{ attrDef.description }} 
+{% endfor %}
+
+Attributes for an NPC should be rated as one of: poor, below average, average, above average, excellent, legendary.
+
+These NPC names are banned (names should not contain any of these):
+{% for word in bannedWords %}- {{ word }}
+{% endfor %}
+
+{#
+Here's a list of existing NPCs (don't generate these again):
+{% for npc in existingNpcsInOtherRegions %}- {{ npc.name }}: {{ npc.shortDescription }} 
+{% endfor %}
+#}
+Here is a list of banned NPC concepts
+- Self-appointed guardian
+- Person who gives cryptic advice
+
+Faction selection: use the full faction name from the <factions> list in the gameState. Use "None" if the NPC has no faction.
+
+{#
+Here's a list of existing NPCs in other locations in this region:
+{% for npc in existingNpcsInOtherLocations %}- {{ npc.name }}: {{ npc.shortDescription }} 
+{% endfor %}
+
+Here's a list of existing NPCs already present in this location:
+{% for npc in existingNpcsInThisLocation %}- {{ npc.name }}: {{ npc.shortDescription }} 
+{% endfor %}
+</context>
+#}
+
+<task>
+{# First, make a list of names of existing NPCs from the gameState tag. #}
+
+First, generate {{ numNpcs }} additional NPC(s) {% if numHostiles > 0 %}and {{ numHostiles }} new hostile entities (can be NPCs, monsters, or other entities of any type that makes sense) {% endif %}for the location above, chosen from the characterConcepts{% if numHostiles > 0 %} and enemyConcepts lists, respectively{% endif %}. **IMPORTANT: The generated NPC must be entirely new and not match any existing NPC from the gameState, not just those in the current location. Check thoroughly against the entire list of existing NPCs.**
+
+Then, generate 3 short memories for each newly generated NPC, from their perspective, about recent significant events they have experienced. These should be no more than 2 sentences long each, and should include interactions with other NPCs, places, things, etc.
+
+Finally, check each newly generated NPC against the banned names, banned concepts, and ALL existing NPCs in the gameState. If any newly generated NPC matches one of these, generate a new NPC to replace it.
+</task>
+
+{{ setting.characterGenInstructions }}
+
+{% include "_includes/npc-race-class-representation.njk" %}
+
+{% set npcFinalRootTag = "response" %}
+{% include "_includes/npc-generation-contemplation-steps.njk" %}
+
+Format your response as follows:
+
+<response>
+{#<existingNpcs>
+<npcName>Exact name of an existing NPC</npcName>
+<npcName>Exact name of an existing NPC</npcName>
+<!-- ...and so on. Every existing NPC in the gameState should be listed here. -->
+</existingNpcs>
+#}<npcs>
+<npc>
+<name>Full name of the NPC</name>
+<description>3 sentence description of the NPC, including their role in the location and any notable characteristics or behaviors. Replace their name with %NAME%.</description>
+<shortDescription>10 words or less description of the NPC. Replace their name with %NAME%.</shortDescription>
+<isHostile>true or false</isHostile>
+<class>RPG class like warrior or cyberninja, job like blacksmith or cashier, or osmething generic like townsperson, peasant or citizen</class>
+
+<faction>Full faction name from the list or "None"</faction>
+<race>their race (human, elf, android, etc)</race>
+
+<!-- Only list things for resistances and vulnerabilities if they would differ significantly from a typical human. For example, if the NPC is a fire elemental, you might list "fire" under resistances and "cold" under vulnerabilities. If the NPC is a normal human with no particular resistances or vulnerabilities, leave these blank. For instance, humans aren't considered vulnerable to fire, as they take standard damage from it.-->
+<resistances>Any specific resistances, immunities, or things that are ineffective against them. "None" if none. Example: "slashing (resistant), cold (immune), charm effects (resistant)"</resistances>
+<vulnerabilities>Any specific vulnerabilities, weaknesses, or things that can be used against them. "None" if none. Example: "fire (extremely vulnerable), light (vulnerable), any magic (vulnerable)"</vulnerabilities>
+
+<gender>male, female, none, or other</gender>
+<relativeLevel>Integer from -3 to +3</relativeLevel>
+<currency>Integer amount of currency the NPC has on hand, based on setting norms.</currency>
+<attributes>
+{% for attrName, attrDef in attributeDefinitions %}  <attribute name="{{ attrName }}">rating (see above)</attribute>
+{% endfor %}
+</attributes>
+<personality>
+    <type>-dere archetype, Enneagram type, Expanded 5x5 DnD alignment, or similar short description. Optionally, 2 types separated by commas, so long as they make sense together. Then a short 2 sentence description of how they aren't just the stereotype of that personality.</type>
+    <traits>optionally, any neurodivergences or mental health conditions (e.g. ADHD, autism, anxiety, depression, bipolar, PTSD, sociopathy, psychopathy, etc). Comma separated, usually none, no more than 3</traits>
+    <characterArc>
+        <shortTerm>A brief description of the NPC's short-term active personal growth arc</shortTerm>
+        <longTerm>A brief description of the NPC's long-term personal growth arc or development over the course of the campaign or story</longTerm>
+    </characterArc>
+    <goals>
+        <goal>A specific, long-term goal the character is working towards</goal>
+        <goal>Another specific, long-term goal the character is working towards</goal>
+        <goal>A specific, short-term goal the character is actively pursuing</goal>
+        <goal>Another specific, short-term goal the character is actively pursuing</goal>
+    </goals>
+    <notes>0 to 2 sentences of additional information not covered by the above</notes>
+</personality>
+<healthAttribute>Name of the attribute (from the list) that determines health gained at level up. Usually something related to toughness or stamina, but may differ for particularly strange npcs or creatures</healthAttribute>
+</npc>
+[… more NPCs …]
+
+</npcs>
+<memories>
+    <npcMemories>
+        <npcName>Exact name of the NPC these memories belong to</npcName>
+        <memory>Short memory of a significant recent event from the NPC's perspective, in the style of a diary entry or personal note. No more than 2 sentences long. Memories should include interactions with other NPCs, places, things, etc.</memory>
+        [... total of 3 memories ...]
+    </npcMemories>
+    [... an npcMemories record for each generated NPC ...]
+</memories>
+
+<bannedNpcs>
+<!-- For each NPC you created above, check if it matches one of the banned names, banned concepts or existing NPCs. If it does, generate a new NPC to replace it here. -->
+<npc>
+<oldNpcName><!-- Exact name of the NPC being replaced --></oldNpcName>
+<whichBannedThing><!-- Which banned name or concept this NPC matched; omit if existing NPC --></whichBannedThing>
+<!-- The other fields are the same as in the main npc block above -->
+<!-- ... -->
+</npc>
+<!-- more npcs as needed -->
+</bannedNpcs>
+</response>

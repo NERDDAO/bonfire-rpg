@@ -1,0 +1,52 @@
+{# The location or region just generated, if applicable #}
+<generatedRegionOrLocation>
+{{ generatedRegionOrLocation }}
+</generatedRegionOrLocation>
+
+{# The XML outputted from the NPC generation prompt #}
+<generatedNPCs>
+{{ generated_npc_results }}
+</generatedNPCs>
+
+<skills>
+{% for skill in skills %}  <skill>
+    <name>{{ skill.name }}</name>
+    <description>{{ skill.description }}</description>
+  </skill>
+{% endfor %}</skills>
+<attributes>
+{% for attribute in attributes %}  <attribute>
+    <name>{{ attribute.name }}</name>
+    <description>{{ attribute.description }}</description>
+  </attribute>
+{% endfor %}</attributes>
+
+For each NPC generated above, produce priority lists for both skills and attributes.
+
+- Skills: pick 3 to 8 fitting skills when skills are available.
+- Attributes: pick 2 to 6 fitting attributes when attributes are available.
+- Use priority values 1 to 3 only, where 3 means highest focus.
+- Priorities are relative, not exact point totals.
+- Use exact names from the lists above. Do not invent new skill or attribute names.
+
+<npcs>
+  <npc>
+    <name>NPC's full exact name</name>
+    <skills>
+      <skill>
+        <name>Exact name of the skill</name>
+        <priority>Integer 1-3 indicating how strongly this NPC prioritizes that skill</priority>
+      </skill>
+      [... more skills ...]
+    </skills>
+    <attributes>
+      <attribute>
+        <name>Exact name of the attribute</name>
+        <priority>Integer 1-3 indicating how strongly this NPC prioritizes that attribute</priority>
+      </attribute>
+      [... more attributes ...]
+    </attributes>
+  </npc>
+  [... more NPCs ...]
+</npcs>
+

@@ -1,0 +1,38 @@
+<attributeDefinitions>
+{% if attributeDefinitions %}
+    {% for attrName, attrDef in attributeDefinitions | dictsort %}
+    <attribute>
+    <name>{{ attrName }}</name>
+    <description>{{ attrDef.description }}</description>
+    </attribute>
+    {% endfor %}
+{% endif %}
+</attributeDefinitions>
+<equipmentSlots>
+{% for slot in equipmentSlots %}  <slot>{{ slot }}</slot>
+{% endfor %}
+</equipmentSlots>
+
+<task>Generate a single thing (item or scenery) that's appropriate to the current setting, location and region. Strictly keep already filled in fields as they are, and fill in the rest of the fields in a way that makes sense with the existing ones.  Return it in this format:</task>
+
+{% if thingSeed.notes %}Additional instructions from the user:
+{{ thingSeed.notes }}
+{% endif %}
+
+<items>
+{% include "_includes/item.njk" %}
+</items>
+
+{% if thingSeed.rarity %}
+The thing's rarity is {{ thingSeed.rarity }}: {{ thingSeed.rarityDescription }}
+{% else %}
+Choose the thing's rarity from the defined rarity levels.
+{% endif %}
+
+Note that bonuses will be normalized to the rarity after generation, so use the full range of bonuses (-4 to +4) as needed.
+
+{% if thingSeed.name %}
+The thing's name should be "{{ thingSeed.name }}".
+{% else %}
+Choose an appropriate thing name and include it in the <name> field.
+{% endif %}

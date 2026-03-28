@@ -1,0 +1,55 @@
+<task>You will be provided with an XML structure representing a quest, which may have some fields filled in and others left empty. Your task is to intelligently fill in the empty fields based on the context provided by the filled fields, ensuring that the completed XML is coherent and consistent. Ensure that the quest has at least one no-optional objective. Return the completed XML structure.</task>
+
+Here is some information about the quest:
+  Short description: {{ shortDescription }}
+
+<quest>
+  <name>{% if quest.name %}{{ quest.name }}{% else %}<!--An appropriate name for this quest. Use the same name as an existing one if modifying it.-->{% endif %}</name>
+  <description>{% if quest.description %}{{ quest.description | replace('\n', ' ') }}{% else %}<!--Three sentences describing the quest's objectives, significance, and context within the world.--> {% endif %}</description>
+  <giver>{% if quest.giver %}{{ quest.giver }}{% else %}<!--Name of the NPC or entity that gives the quest.-->{% endif %}</giver>
+  <secretNotes><!-- Internal notes about the quest that are not revealed to the player. If this is a simple quest, it's okay to leave these blank. --></secretNotes>
+  <objectives>
+    <objective>
+      <description><!--Description of the objective. If modifying a quest, skip any objectives that are already completed. Keep or add objectives as needed. If it is necessary to be present at a location or region to complete this objective, add the tag [location: {full location name}] or [region: {full region name}] to the end of the objective. If a person must be present (such as someone to report or speak to), add the tag [person: {full person name}] to the end of the objective. If a specific item is required to complete the objective, add the tag [item: {full item name}] to the end of the objective. Tags must be contained INSIDE the description element.
+
+      For example: 
+      
+      * <description>Investigate the Ancient Ruins for signs of magical activity [region: Ancient Ruins]</description>
+      * <description>Retrieve the Lost Amulet from the Temple of Talos in the Ancient Ruins [location: Temple of Talos] [item: Lost Amulet] [region: Ancient Ruins]</description>
+      * <description>Report your findings in the Ancient Ruins to Elder Thalos [person: Elder Thalos]</description> 
+        (note that the Ancient Ruins is not tagged in the above objective because it is not necessary to be present there to complete it).
+
+      Objectives should have one task apiece. If multiple tasks are needed, create separate objectives for each task.
+
+      For example:
+      FAIL: 
+      * <description>Craft a Magic Dampening Rune and apply it to the entrace of the Guild Hall. [item: Magic Dampening Rune] [location: Guild Hall Exterior]</description>
+
+      PASS:
+      * <description>Craft a Magic Dampening Rune. [item: Magic Dampening Rune]</description>
+      * <description>Apply the Magic Dampening Rune to the entrance of the Guild Hall. [item: Magic Dampening Rune] [location: Guild Hall Exterior]</description>
+      --></description>
+    </objective>
+    ... more objectives as needed ...
+  </objectives>
+  <rewards>
+    <item>
+      <description><!--Description of the reward item or benefit. If modifying an existing request, list all existing rewards unless there's a very good reason to remove one or more of them. It is okay to add additional rewards.--></description>
+    </item>
+    ... more items as needed ...
+    <currency>
+      <!--Integer amount of currency rewarded, based on setting norms. If modifying an existing quest, do not decrease this from the original value, but increasing it is okay.-->
+    </currency>
+    <factionReputation>
+      <!--Optional. Use only when this quest should change player reputation with one or more factions.-->
+      <!--Only include entries with non-zero point changes. Positive numbers improve reputation; negative numbers reduce it.-->
+      <!--Use the exact faction name from the <factions> list in context.-->
+      <!--If no faction reputation changes apply, omit all <faction> entries (none are required).-->
+      <faction>
+        <name><!--Exact faction name.--></name>
+        <points><!--Non-zero integer reputation delta (can be negative).--></points>
+      </faction>
+      ... more factions as needed ...
+    </factionReputation>
+  </rewards>
+</quest>

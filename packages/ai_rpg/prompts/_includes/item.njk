@@ -1,0 +1,39 @@
+<item>
+<name>{% if thingSeed.name %}{{ thingSeed.name }}{% else %}<!-- Item Name -->{% endif %}</name>
+<description>{% if thingSeed.description %}{{ thingSeed.description }}{% else %}<!--1-2 sentence description of the item-->{% endif %}</description>
+<itemOrScenery>{% if thingSeed.itemOrScenery %}{{ thingSeed.itemOrScenery }}{% else %}<!--for furniture, workstations, scenery, and things that are too large (or otherwise impossible) to pick up, answer "scenery"; otherwise answer "item"-->{% endif %}</itemOrScenery>
+<type>{% if thingSeed.type %}{{ thingSeed.type }}{% else %}<!--Type of item (e.g., weapon, armor, consumable, tool, etc.)-->{% endif %}</type>
+<slot>{% if thingSeed.slot %}{{ thingSeed.slot }}{% else %}<!--Available gear slots: {% for slot in equipmentSlots %}{{ slot }}{% if not loop.last %}, {% endif %}{% endfor %}
+    N/A if not equippable -->{% endif %}</slot>
+<rarity>{% if thingSeed.rarity %}{{ thingSeed.rarity }}{% else %}<!--{%- for rarity in rarityDefinitions -%}{{ rarity.label or rarity.key }}{%- if not loop.last -%}, {% endif %}{%- endfor -%}
+-->{% endif %}</rarity>
+<value>{% if thingSeed.value is defined %}{{ thingSeed.value }}{% else %}<!--Monetary value of the item in currency units-->{% endif %}</value>
+<weight>{% if thingSeed.weight is defined %}{{ thingSeed.weight }}{% else %}<!--Weight of the item in pounds-->{% endif %}</weight>
+<relativeLevel>{% if thingSeed.relativeLevel is defined %}{{ thingSeed.relativeLevel }}{% else %}<!--Integer from -3 to +3-->{% endif %}</relativeLevel>
+<isVehicle>{% if thingSeed.isVehicle is defined %}{{ thingSeed.isVehicle }}{% else %}<!--true or false--> 
+    <!-- note that an item is a vehicle if it can be used to travel, so a teleportation wand and a jetpack are both vehicles. A vehicle is scenery it's big enough to get inside or ride on (like a car or horse) but not so big you can walk around in it, like a bus or jet liner. Those are considered regions and should not be created as items or scenery at all.--> {% endif %}</isVehicle>
+<isCraftingStation>{% if thingSeed.isCraftingStation is defined %}{{ thingSeed.isCraftingStation }}{% else %}<!--true or false. Note that a thing is considered to be a crafting station if you can reasonably use it to combine *multiple* things into a new thing. Stoves, engineering workbenches, etc, are crafting stations.--> {% endif %}</isCraftingStation>
+<isProcessingStation>{% if thingSeed.isProcessingStation is defined %}{{ thingSeed.isProcessingStation }}{% else %}<!--true or false. Note that a thing is considered to be a processing station if you can reasonably use it to transform *one* thing into another thing. Tanning racks, flour mills, etc, are processing stations.--> {% endif %}</isProcessingStation>
+<isHarvestable>{% if thingSeed.isHarvestable is defined %}{{ thingSeed.isHarvestable }}{% else %}<!--true or false. Note that an thing is considered harvestable if you can take items from it and it will still be there, such as a berry bush, an herb patch, a well-stocked pantry, etc. Single items that you can pick up, such as a berry, an herb, etc, are not considered harvestable. They're just items to be picked up.--> {% endif %}</isHarvestable>
+<isSalvageable>{% if thingSeed.isSalvageable is defined %}{{ thingSeed.isSalvageable }}{% else %}<!--true or false. Note that an item is considered salvageable if it can be broken down into component parts (generally for crafting), and doing so consumes it.--> {% endif %}</isSalvageable>
+<attributeBonuses>
+    <!-- optional; all uncommon or rarer items should have at least one attribute bonus; junk items should have some small negatives; common items should have none or a mix of small positives and negatives, and uncommon+ items should have progressively better stats; make them appropriate to the weapon; omit any attribute bonuses that are zero; scenery and items that cannot be equipped should not have any attribute bonuses -->
+    <attributeBonus>
+        <attribute><!--one of: {% for attribute in attributes %}{{ attribute }}{% if not loop.last %}, {% endif %}{% endfor %}--></attribute>
+        <bonus><!--Bonus value (between -4 and +4)--></bonus>
+    </attributeBonus>
+</attributeBonuses>
+<causeStatusEffectOnTarget>
+    <!-- optional; only for uncommon or rarer items; never for scenery or items that cannot be equipped or consumed -->
+    <name><!--Name of the status effect (e.g., "Poisoned", "Blessed", etc.)--></name>
+    <description><!--1-2 sentence description of the status effect--></description>
+    <duration><!-- Duration for status effect timing. Use HH:MM, integer minutes, or explicit units like "2 hours", "45 minutes", "1 day, 2 hours". Use "1 minute" for instant effects and "permanent" only when truly indefinite. N/A if equippable. --></duration>
+</causeStatusEffectOnTarget>
+<causeStatusEffectOnEquipper>
+    <!-- optional; only for uncommon or rarer items; never for scenery or items that cannot be equipped -->
+    <name><!--Name of the status effect (e.g., "Poisoned", "Blessed", etc.)--></name>
+    <description><!--1-2 sentence description of the status effect--></description>
+</causeStatusEffectOnEquipper>
+<properties><!--Any special properties or effects of the item--></properties>
+<shortDescription><!--5-10 word summary to reduce context vs full XML. Try to get the essence of the item across clearly and concisely. Don't mention any numbers, rarities, or specific values. Don't mention the item by name, as this wastes tokens.--></shortDescription>
+</item>

@@ -1,0 +1,54 @@
+{
+  "name": "ai-rpg",
+  "version": "1.0.0",
+  "description": "An AI-powered RPG game server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "scss:build:main": "sass public/css/main.scss public/css/main.css",
+    "scss:build:settings": "sass public/css/settings.scss public/css/settings.css",
+    "scss:build": "npm run scss:build:main && npm run scss:build:settings",
+    "scss:watch:main": "sass --watch public/css/main.scss public/css/main.css",
+    "scss:watch:settings": "sass --watch public/css/settings.scss public/css/settings.css",
+    "scss:watch": "sass --watch public/css/main.scss public/css/main.css public/css/settings.scss public/css/settings.css",
+    "playwright:install": "playwright install chromium",
+    "test:e2e": "playwright test",
+    "test:e2e:headless": "playwright test --project=chromium",
+    "test:e2e:headed": "playwright test --project=chromium-headed",
+    "test:e2e:headed:xvfb": "xvfb-run -a playwright test --project=chromium-headed",
+    "test:e2e:playthrough-regression": "PLAYWRIGHT_PLAYTHROUGH_REGRESSION=1 playwright test --project=chromium tests/e2e/playthrough.regression.spec.js",
+    "test:e2e:playthrough-region-roundtrip": "PLAYWRIGHT_PLAYTHROUGH_REGRESSION=1 PLAYWRIGHT_PLAYTHROUGH_MODE=region playwright test --project=chromium tests/e2e/playthrough.regression.spec.js",
+    "test:e2e:ui": "playwright test --ui",
+    "playwright:settings:screenshot": "node playwright_scripts/capture_settings_page.js"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "^0.9.8",
+    "axios": "^1.5.0",
+    "body-parser": "^1.20.2",
+    "cheerio": "^1.1.2",
+    "cytoscape": "^3.33.1",
+    "cytoscape-euler": "^1.2.3",
+    "cytoscape-fcose": "^2.2.0",
+    "express": "^4.18.2",
+    "js-yaml": "^4.1.0",
+    "markdown-it": "^14.1.0",
+    "nunjucks": "^3.2.4",
+    "sharp": "^0.34.5",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "esbuild": "^0.25.9",
+    "nodemon": "^3.0.1",
+    "sass": "^1.97.3",
+    "vite": "^6.3.6"
+  },
+  "keywords": [
+    "nodejs",
+    "express",
+    "hello-world"
+  ],
+  "author": "",
+  "license": "MIT"
+}

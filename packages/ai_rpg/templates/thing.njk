@@ -1,0 +1,55 @@
+### {{ thing.name }}
+
+- Type: {{ thing.thingType | default('item', true) }}
+- Rarity: {{ thing.rarity | default('common', true) }}
+- Level: {{ thing.level | default(1, true) }}
+{% if thing.itemTypeDetail %}
+- Item Type: {{ thing.itemTypeDetail }}
+{% endif %}
+{% if thing.slot %}
+- Slot: {{ thing.slot }}
+{% endif %}
+- Vehicle: {{ thing.isVehicle | default(false) }}
+- Crafting Station: {{ thing.isCraftingStation | default(false) }}
+- Processing Station: {{ thing.isProcessingStation | default(false) }}
+- Harvestable: {{ thing.isHarvestable | default(false) }}
+- Salvageable: {{ thing.isSalvageable | default(false) }}
+
+{% if thing.summary %}
+**Summary**
+{{ thing.summary }}
+
+{% endif %}
+{% if thing.description and thing.description != thing.summary %}
+**Description**
+{{ thing.description }}
+
+{% endif %}
+
+**Attribute Bonuses**
+{% if thing.attributeBonuses and thing.attributeBonuses.length %}
+{% for bonus in thing.attributeBonuses %}
+- {{ bonus.attribute | default('Unknown', true) }}: {{ bonus.bonus | default(0, true) }}
+{% endfor %}
+{% else %}
+- None
+{% endif %}
+
+**Status Effects**
+{% if thing.statusEffects and thing.statusEffects.length %}
+{% for effect in thing.statusEffects %}
+- {{ effect.description }} (duration: {{ effect.duration | default('unknown', true) }})
+{% endfor %}
+{% else %}
+- None
+{% endif %}
+
+{% if thing.causeStatusEffectOnTarget %}
+**Inflicts on Target**
+- {{ thing.causeStatusEffectOnTarget.name | default('Unknown', true) }}: {{ thing.causeStatusEffectOnTarget.description | default('', true) }} (duration: {{ thing.causeStatusEffectOnTarget.duration | default('unknown', true) }})
+
+{% endif %}
+{% if thing.causeStatusEffectOnEquipper %}
+**Inflicts on Equipper**
+- {{ thing.causeStatusEffectOnEquipper.name | default('Unknown', true) }}: {{ thing.causeStatusEffectOnEquipper.description | default('', true) }} (duration: {{ thing.causeStatusEffectOnEquipper.duration | default('unknown', true) }})
+{% endif %}

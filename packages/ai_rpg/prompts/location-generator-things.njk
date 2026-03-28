@@ -1,0 +1,64 @@
+<template>
+    <role>Character Inventory Generator</role>
+    
+    <systemPrompt>
+You are a an AI role-playing gamemaster.
+    </systemPrompt>
+    
+<generationPrompt>
+<context>
+Here is a list of all character attributes:
+{% for attrName, attrDef in attributeDefinitions %}- {{ attrName }}: {{ attrDef.description }} 
+{% endfor %}
+
+Item/Scenery rarity levels:{% for rarity in rarityDefinitions %}
+  {{ rarity.label }}: {{ rarity.description }}
+{% endfor %}
+
+Equipment slots: 
+{% for slot in equipmentSlots %}{{ slot }}, {% endfor %}
+
+<setting>
+{{ setting }}
+</setting>
+<region>
+<name>{{ region.regionName }}</name>
+<description>{{ region.regionDescription }}</description>
+</region>
+<location>
+<name>{{ location.name }}</name>
+<description>{{ location.description }}</description>
+</location>
+</context>
+
+{% if lorebookEntries and lorebookEntries.length > 0 %}
+<worldLore>
+{% for entry in lorebookEntries %}
+<loreEntry>{{ entry.content }}</loreEntry>
+{% endfor %}
+</worldLore>
+{% endif %}
+
+I'd like you to generate a set of items and scenery that would be found in the above location in the above setting. The items should be appropriate for the setting.{% if lorebookEntries and lorebookEntries.length > 0 %} Incorporate relevant elements from the world lore provided above.{% endif %} Output them in the format below:
+
+<things>
+{% include "_includes/item.njk" %}
+[... more items and scenery as appropriate ...]
+</things>
+
+Here is a list of recently created items and scenery:
+{% for thing in recentThings %}- {{ thing.name }} ({{ thing.rarity }})
+{% endfor %}
+Use the above list as a guide to generate something new and different, avoiding duplicates. Be very careful to check whether the location is an EXTERIOR or INTERIOR location, and generate things that make sense for that type of location. For example, an inn exterior would not have a registration desk; that would go in a location inside the inn. However, it might ave a sign advertising the inn, etc.
+
+You should generate a mix of items and scenery at the number and rarity levels according to these lists:
+
+Items:
+{% set itemRarities = rarityList and rarityList.items or {} %}{% if itemRarities %}{% for rarity, count in itemRarities | dictsort %}  {{ rarity }}: {{ count }}
+{% endfor %}{% else %}  (none){% endif %}
+
+Scenery:
+{% set sceneryRarities = rarityList and rarityList.scenery or {} %}{% if sceneryRarities %}{% for rarity, count in sceneryRarities | dictsort %}  {{ rarity }}: {{ count }}
+{% endfor %}{% else %}  (none){% endif %}
+</generationPrompt>
+</template>

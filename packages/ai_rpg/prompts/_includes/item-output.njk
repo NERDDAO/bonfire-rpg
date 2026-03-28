@@ -1,0 +1,33 @@
+{% if changeDescription %}<originalItem>{% else %}<item>{% endif %}
+  <name>{{ item.name }}</name>
+  <description>{{ item.description }}</description>
+  <itemOrScenery>{{ item.itemOrScenery }}</itemOrScenery>
+  <type>{{ item.type }}</type>
+  <slot>{% if item.slot %}{{ item.slot | join(", ") }}{% else %}N/A{% endif %}</slot>
+  <rarity>{{ item.rarity }}</rarity>
+  <value>{{ item.value }}</value>
+  <weight>{{ item.weight }}</weight>
+  <relativeLevel>{{ item.relativeLevel }}</relativeLevel>
+  <isVehicle>{{ item.isVehicle }}</isVehicle>
+  <isCraftingStation>{{ item.isCraftingStation }}</isCraftingStation>
+  <isProcessingStation>{{ item.isProcessingStation }}</isProcessingStation>
+  <isHarvestable>{{ item.isHarvestable }}</isHarvestable>
+  <isSalvageable>{{ item.isSalvageable }}</isSalvageable>
+  <attributeBonuses>
+    {% if item.attributeBonuses %}{% for bonus in item.attributeBonuses %}<attributeBonus>
+      <attribute>{{ bonus.attribute }}</attribute>
+      <bonus>{{ bonus.bonus }}</bonus>
+    </attributeBonus>{% endfor %}{% endif %}
+  </attributeBonuses>
+{% if item.causeStatusEffectOnTarget %}<causeStatusEffectOnTarget>
+    <name>{{ item.causeStatusEffectOnTarget.name }}</name>
+    <description>{{ item.causeStatusEffectOnTarget.description }}</description>
+    <duration>{{ item.causeStatusEffectOnTarget.duration }}</duration>
+  </causeStatusEffectOnTarget>{% endif %}
+{% if item.causeStatusEffectOnEquipper %}<causeStatusEffectOnEquipper>
+    <name>{{ item.causeStatusEffectOnEquipper.name }}</name>
+    <description>{{ item.causeStatusEffectOnEquipper.description }}</description>
+    <duration>{{ item.causeStatusEffectOnEquipper.duration }}</duration>
+  </causeStatusEffectOnEquipper>{% endif %}
+  <properties>{{ item.properties }}</properties>
+{% if changeDescription %}</originalItem>{% else %}</item>{% endif %}

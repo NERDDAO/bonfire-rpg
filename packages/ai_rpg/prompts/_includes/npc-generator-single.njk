@@ -1,0 +1,76 @@
+<task>You will be provided with an XML structure representing a an NPC, which may have some fields filled in and others left empty. Your task is to intelligently fill in the empty fields based on the context provided by the filled fields, ensuring that the completed XML is coherent and consistent.</task>
+
+If the <name> field is already filled in, repeat it exactly and do not change it. Do not add titles, epithets, or descriptors to a prefilled name.
+
+{% if hasImage %}A reference image is provided. Use it to guide the NPC's appearance, attire, vibe, standout details, and anything else not specified, keeping other fields consistent with what you see.{% endif %}
+
+Note that an NPC is defined loosely here, and may be a creature, monster, or any other entity that functions as a non-player character in a text-based RPG setting.
+
+Faction selection: use the full faction name from the <factions> list in the gameState. Use "None" if the NPC has no faction.
+
+{% if oldItem %}Note that this NPC was created from the following item or scenery: "{{ oldItem.name }}", described as "{{ oldItem.description }}". The transformation is described as "{{ oldItem.transformationDescription }}". Use this as inspiration for the NPC's appearance, personality, and role.{% endif %}
+
+{{ setting.characterGenInstructions }}
+
+{% include "_includes/npc-race-class-representation.njk" %}
+
+{% if additionalInstructions %}Additional instructions from the user:
+{{ additionalInstructions }}{% endif %}
+
+{% set npcFinalRootTag = "npcInfo" %}
+{% include "_includes/npc-generation-contemplation-steps.njk" %}
+
+Respond in the below format, making sure that <npcInfo> is the root tag and encloses both <npcs> and <memories> elements.
+    
+<npcInfo>
+    <npcs>
+        <npc>
+            <name>{% if npc.name %}{{ npc.name }}<!--Name is fixed; do not change it.-->{% else %}<!--An appropriate name for this NPC. Do not use the name of an existing or deceased NPC.-->{% endif %}</name>
+            <description>{% if npc.description %}{{ npc.description | replace('\n', ' ') }}{% else %}<!--Three sentences describing appearance, personality, current goals, and how they relate to the location. Replace their name with %NAME%.--> {% endif %}</description>
+            <shortDescription>{% if npc.shortDescription %}{{ npc.shortDescription }}{% else %}<!--Ten words or fewer summarizing the NPC. Replace their name with %NAME%.--> {% endif %}</shortDescription>
+            <role>{% if npc.role %}{{ npc.role  }}{% else %}<!--Clear role, job, or niche within the location.-->{% endif %}</role>
+            <class>{% if npc.class %}{{ npc.class }}{% else %}<!--RPG class, vocation, or archetype.-->{% endif %}</class>
+
+            <faction><!-- Full faction name from the list or "None" --></faction>
+            <race>{% if npc.race %}{{ npc.race }}{% else %}<!--Species or origin.-->{% endif %}</race>
+
+            <!-- Only list things for resistances and vulnerabilities if they would differ significantly from a typical human. For example, if the NPC is a fire elemental, you might list "fire" under resistances and "cold" under vulnerabilities. If the NPC is a normal human with no particular resistances or vulnerabilities, leave these blank. For instance, humans aren't considered vulnerable to fire, as they take standard damage from it.-->
+            <resistances>{% if npc.resistances %}{{ npc.resistances }}{% else %}<!--Any specific resistances, immunities, or things that are ineffective against them. "None" if none. Example: "slashing (resistant), cold (immune), charm effects (resistant)" -->{% endif %}</resistances>
+            <vulnerabilities>{% if npc.vulnerabilities %}{{ npc.vulnerabilities }}{% else %}<!--Any specific vulnerabilities, weaknesses, or things that can be used against them. "None" if none. Example: "fire (extremely vulnerable), light (vulnerable), any magic (vulnerable)" -->{% endif %}</vulnerabilities>
+
+            <gender>{% if npc.gender %}{{ npc.gender }}{% else %}<!--male, female, none, or other-->{% endif %}</gender>
+            <isHostile>{% if npc.isHostile is defined -%}{% if npc.isHostile in [true, 'true', 'True', 1, '1', 'yes', 'Yes', 'hostile', 'Hostile'] %}true{% else %}false{% endif %}{%- else -%}<!--true or false-->{%- endif %}</isHostile>
+            <relativeLevel>{% if npc.relativeLevel %}{{ npc.relativeLevel }}{% else %}<!--Integer from -3 to +3-->{% endif %}</relativeLevel>
+            <currency>{% if npc.currency %}{{ npc.currency }}{% else %}<!--Integer amount of currency the NPC has on hand, based on setting norms.-->{% endif %}</currency>
+            <attributes>
+        {% for attrName, attrDef in attributeDefinitions %}      <attribute name="{{ attrName }}"><!--Rating using: poor, below average, average, above average, excellent, or legendary.--></attribute>
+        {% endfor %}
+            </attributes>
+            <personality>
+                <type><!-- -dere archetype, Enneagram type, Expanded 5x5 DnD alignment, or similar short description. Optionally, 2 types separated by commas, so long as they make sense together. Then a short 2 sentence description of how they aren't just the stereotype of that personality. --></type>
+                <traits><!-- optionally, any neurodivergences or mental health conditions (e.g. ADHD, autism, anxiety, depression, bipolar, PTSD, sociopathy, psychopathy, mania, any phobias, etc). Comma separated, usually none, no more than 3 --></traits>
+                <characterArc>
+                    <shortTerm><!-- A brief description of the NPC's short-term active personal growth arc --></shortTerm>  
+                    <longTerm><!-- A brief description of the NPC's long-term personal growth arc or development over the course of the campaign or story --></longTerm>
+                </characterArc>
+                <goals>
+                    <goal><!-- A specific, long-term goal the character is working towards --></goal>
+                    <goal><!-- Another specific, long-term goal the character is working towards --></goal>
+                    <goal><!-- A specific, short-term goal the character is actively pursuing --></goal>
+                    <goal><!-- Another specific, short-term goal the character is actively pursuing --></goal>
+                </goals>
+                <notes><!-- up to 2 paragraphs of additional information that's unique to the character. If the character has any secrets (known to the character themselves or not), put them here. --></notes>
+            </personality>
+            <healthAttribute><!-- Name of the attribute (from the list) that determines health gained at level up. Usually something related to toughness or stamina, but may differ for particularly strange npcs or creatures --></healthAttribute>
+        </npc>
+    </npcs>
+    <memories>
+        <npcMemory>
+            <npcName><!-- Exact name of the NPC these memories belong to --></npcName>
+            <memory><!-- Short memory of a significant event from the NPC's perspective, in the style of a diary entry or personal note. No more than 2 sentences long. Make up past interactions with other NPCs, places, things, etc. --></memory>
+            <!--[... total of 3 memories ...]-->
+        </npcMemory>
+    </memories>
+</npcInfo>
+
+Do not include any additional <npc> entries or stray from the XML format.

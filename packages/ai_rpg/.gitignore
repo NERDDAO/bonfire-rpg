@@ -1,0 +1,33 @@
+config.yaml
+node_modules/
+package-lock.json
+.DS_Store
+saves/*
+public/generated-images/*
+logs/*
+logs_prev/*
+exports/*
+prompt_overrides/*
+autosaves/*
+temp/*
+tmp/
+tmp/*
+playwright-report/*
+test-results/*
+imagegen/test*
+imagegen/*2512*
+**/*.old
+new-game-settings/*
+config.yaml.polaris
+mods/*
+!mods/bonfires-gm/
+mods/scene-illustrations/data/*
+imagegen/qwen_image_2512_nova.json
+imagegen/qwen_image_2512_nova.json.njk
+# Lorebook state and data
+lorebooks/*.json
+lorebooks/lorebook-state.json
+.codex
+
+# Keep directory structure
+!lorebooks/.gitkeep

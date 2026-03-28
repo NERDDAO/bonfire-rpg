@@ -1,0 +1,77 @@
+### {{ player.name }}
+
+- Type: {{ 'NPC' if player.isNPC else 'Player' }}
+- Level: {{ player.level | default(1, true) }}
+- Class: {{ player.class | default('Unknown', true) }}
+- Race: {{ player.race | default('Unknown', true) }}
+- Location: {{ player.locationName | default('Unknown', true) }}
+- Hostile: {{ player.isHostile | default(false) }}
+- Dead: {{ player.isDead | default(false) }}
+{% if player.factionName %}
+- Faction: {{ player.factionName }}
+{% endif %}
+{% if player.currency is defined and player.currency is not none %}
+- Currency: {{ player.currency }}
+{% endif %}
+{% if player.experience is defined and player.experience is not none %}
+- Experience: {{ player.experience }}
+{% endif %}
+
+{% if player.description %}
+**Summary**
+{{ player.description }}
+
+{% endif %}
+{% if player.aliases and player.aliases.length %}
+**Aliases**
+{% for alias in player.aliases %}
+- {{ alias }}
+{% endfor %}
+
+{% endif %}
+{% if player.resistances %}
+**Resistances**
+{{ player.resistances }}
+
+{% endif %}
+{% if player.vulnerabilities %}
+**Vulnerabilities**
+{{ player.vulnerabilities }}
+
+{% endif %}
+
+**Skills**
+{% if player.skills and player.skills.length %}
+{% for skill in player.skills %}
+- {{ skill.name }} ({{ skill.value }})
+{% endfor %}
+{% else %}
+- None
+{% endif %}
+
+**Abilities**
+{% if player.abilities and player.abilities.length %}
+{% for ability in player.abilities %}
+- {{ ability.name }} (Level {{ ability.level | default(1, true) }}){% if ability.summary %}: {{ ability.summary }}{% endif %}
+{% endfor %}
+{% else %}
+- None
+{% endif %}
+
+**Inventory**
+{% if player.inventory and player.inventory.length %}
+{% for item in player.inventory %}
+- {{ item.name }} ({{ item.rarity | default('common', true) }}, L{{ item.level | default(1, true) }}, {{ item.thingType | default('item', true) }}){% if item.equippedSlot %} [equipped: {{ item.equippedSlot }}]{% endif %}{% if item.summary %}: {{ item.summary }}{% endif %}
+{% endfor %}
+{% else %}
+- None
+{% endif %}
+
+**Status Effects**
+{% if player.statusEffects and player.statusEffects.length %}
+{% for effect in player.statusEffects %}
+- {{ effect.description }} (duration: {{ effect.duration | default('unknown', true) }})
+{% endfor %}
+{% else %}
+- None
+{% endif %}

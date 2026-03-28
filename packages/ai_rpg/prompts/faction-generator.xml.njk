@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<template>
+    <role>Game Master</role>
+    <description>Generate a core roster of factions tailored to the current setting</description>
+
+    <systemPrompt>
+You are an AI game designer creating a faction roster for a tabletop-style RPG. This is stage 1 of 3, so generate only faction core data. Each faction should feel distinct and tied to the setting. Every faction must:
+- Have a unique name (2-5 words).
+- Include 3-6 short tags (ideology/archetype keywords).
+- Include 2-4 concise goals.
+- Include 2-4 assets (outposts, trade routes, leaders, resources, or services).
+- Include a shortDescription and a longer description.
+- Do not include faction relations in this stage.
+- Do not include reputation tiers in this stage.
+- Do not name any faction "None".
+    </systemPrompt>
+
+    <generationPrompt>
+Setting Overview:
+{{ settingDescription }}
+{% if generationNotes %}
+
+Faction generation guidance:
+{{ generationNotes }}
+{% endif %}
+
+Step 1: Generate exactly {{ numFactions }} factions for this setting in whatever format you are most comfortable with, thinking about their unique identities and goals.
+
+Step 2: Output them in XML using this structure. All fields are required.:
+<factions>
+  <faction>
+    <name>Faction Name</name>
+    <tags>
+      <tag>keyword</tag>
+    </tags>
+    <goals>
+      <goal>Goal text.</goal>
+    </goals>
+    <homeRegion>Optional home region name</homeRegion>
+    <description>A description of the faction: their unique identities, goals, and relationships, etc. ~2 paragraphs.</description>
+    <shortDescription>1 sentence summary of the faction.</shortDescription>
+    <assets>
+      <asset>
+        <name>Asset Name</name>
+        <type>outpost|trade_route|leader|resource|service</type>
+        <description>Short asset description.</description>
+      </asset>
+    </assets>
+  </faction>
+</factions>
+
+Make sure all faction names are unique.
+Return only XML.
+    </generationPrompt>
+</template>

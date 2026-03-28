@@ -1,0 +1,199 @@
+first_impression_multiplier: 3
+range:
+  min: -200
+  max: 200
+  typical_step: 4
+  typical_big_step: 50
+dispositions:
+  platonic:
+    description: Represents a character's level of friendship or camaraderie with the player character.
+    hostile_value: -40
+    hostile_threshold: -31
+    move_up:
+      - friendly conversation
+      - helped by character
+      - shared a personal story
+      - complimented
+      - gave a gift
+      - acted in a way they approve of
+    move_down:
+      - insulted
+      - ignored
+      - betrayed (could include things like loss of respect or not being who they thought you were)
+      - lied to
+      - acted selfishly
+      - acted in a way they don't approve of
+    move_way_down:
+      - physically harmed
+      - caused significant emotional distress
+      - stole from
+      - endangered
+      - committed serious crime they don't approve of
+    min_thresholds:
+      minimum: hated (-8 to relevant circumstance modifier)
+      -30: dislike (-6 to relevant circumstance modifier)
+      -20: wary (-4 to relevant circumstance modifier)
+      -10: indifferent (-2 to relevant circumstance modifier)
+      0: neutral
+      1: casual acquaintance (+1 to relevant circumstance modifier)
+      20: acquaintance (+2 to relevant circumstance modifier)
+      40: friend (+4 to relevant circumstance modifier)
+      80: close friend (+7 to relevant circumstance modifier)
+      120: best friend (+10 to relevant circumstance modifier)
+  romantic:
+    description: Represents a character's level of romantic interest or affection towards the player character.
+    hostile_value: -15
+    move_up:
+      - romantic gesture
+      - flirted
+      - gave a meaningful personal gift (not necessarily valuable)
+      - they have a crush on you
+      - did something nice for them
+    move_down:
+      - rejected romantic advance
+      - acted jealous
+      - flirted with someone else
+      - broke a promise
+      - insulted
+      - lied to
+      - betrayed
+      - did something they don't approve of
+    move_way_down:
+      - cheated
+      - physically harmed
+      - caused significant emotional distress
+      - endangered
+      - committed serious crime they don't approve of
+    min_thresholds:
+      minimum: despised (-8 to relevant circumstance modifier)
+      -30: disliked (-6 to relevant circumstance modifier)
+      -20: wary (-4 to relevant circumstance modifier)
+      -10: indifferent (-2 to relevant circumstance modifier)
+      0: neutral
+      1: casual acquaintance (+1 to relevant circumstance modifier)
+      20: acquaintance (+2 to relevant circumstance modifier)
+      40: potential romantic interest (+4 to relevant circumstance modifier)
+      80: romantic interest (+7 to relevant circumstance modifier)
+      120: romantic partner (+10 to relevant circumstance modifier)
+  lust:
+    description: Represents a character's level of sexual desire or attraction towards the player character.
+    hostile_value: 0
+    move_up:
+      - flirted
+      - made a seductive comment
+      - was found sexually attractive
+      - did something they find sexy
+      - liked your sexual advances
+    move_down:
+      - rejected flirtation
+      - flirted with someone else
+      - Was not found sexually attractive
+      - did something they find unsexy
+      - don't like your sexual advances
+      - they find you physically unattractive
+    move_way_down:
+      - Is related by blood
+      - Is a minor
+      - Sexuality is incompatible (they are asexual or not attracted to your gender)
+      - they find your body physically disgusting, repulsive, or fundamentally not attractive (you are swamp thing, robot, alien, a rock, etc)
+    min_thresholds:
+      minimum: repulsed (-8 to relevant circumstance modifier)
+      -30: disgusted (-6 to relevant circumstance modifier)
+      -20: uninterested (-4 to relevant circumstance modifier)
+      -10: indifferent (-2 to relevant circumstance modifier)
+      0: neutral
+      1: mildly interested (+1 to relevant circumstance modifier)
+      20: interested (+2 to relevant circumstance modifier)
+      40: willing (+4 to relevant circumstance modifier)
+      80: desirous (+7 to relevant circumstance modifier)
+      120: lustful (+10 to relevant circumstance modifier)
+  respect:
+    description: Represents a character's level of admiration or esteem for the player character.
+    move_up:
+      - impressed by skill or talent
+      - achieved something notable
+      - demonstrated leadership
+      - acted honorably
+      - helped others
+    move_down:
+      - acted incompetently
+      - failed at a task
+      - acted cowardly
+      - broke a promise
+      - acted selfishly
+    move_way_down:
+      - committed a serious crime
+      - betrayed trust
+      - endangered others
+      - acted in a way that is fundamentally against their values
+    min_thresholds:
+      minimum: despised (-8 to relevant circumstance modifier)
+      -30: disrespected (-6 to relevant circumstance modifier)
+      -20: wary (-4 to relevant circumstance modifier)
+      -10: indifferent (-2 to relevant circumstance modifier)
+      0: neutral
+      1: mildly respected (+1 to relevant circumstance modifier)
+      20: respected (+2 to relevant circumstance modifier)
+      40: respected colleague (+4 to relevant circumstance modifier)
+      80: respected ally (+7 to relevant circumstance modifier)
+      120: respected ally (+10 to relevant circumstance modifier)
+  comfort_fear:
+    description: Represents a character's level of comfort or fear around the player character.
+    hostile_value: -20
+    move_up:
+      - provided comfort during a difficult time
+      - helped them face a fear
+      - acted in a way that made them feel safe
+      - shared a personal story of overcoming fear
+      - showed empathy
+    move_down:
+      - dismissed their fears
+      - acted in a way that made them feel unsafe
+      - betrayed their trust
+      - ignored their emotional needs
+      - acted selfishly
+    move_way_down:
+      - caused significant emotional distress
+      - endangered them or someone they care about
+      - acted in a way that is fundamentally against their values
+    min_thresholds:
+      minimum: terrified of you (-8 to relevant circumstance modifier)
+      -30: very uncomfortable around you (-6 to relevant circumstance modifier)
+      -20: uncomfortable around you (-4 to relevant circumstance modifier)
+      -10: indifferent (-2 to relevant circumstance modifier)
+      0: neutral
+      1: mildly comfortable around you (+1 to relevant circumstance modifier)
+      20: comfortable around you (+2 to relevant circumstance modifier)
+      40: very comfortable around you (+4 to relevant circumstance modifier)
+      80: very comfortable around you (+7 to relevant circumstance modifier)
+      120: very comfortable around you (+10 to relevant circumstance modifier)
+  trust:
+    description: Represents a character's level of trust or distrust towards the player character.
+    hostile_value: -35
+    move_up:
+      - kept a secret
+      - acted honestly
+      - helped in a difficult situation
+      - demonstrated reliability
+      - shared personal information
+    move_down:
+      - lied
+      - broke a promise
+      - acted selfishly
+      - betrayed trust
+      - ignored their needs
+    move_way_down:
+      - committed a serious crime they disapprove of
+      - endangered them or someone they care about
+      - acted in a way that is fundamentally against their values
+    min_thresholds:
+      minimum: completely distrust you (-8 to relevant circumstance modifier)
+      -30: very wary of you (-6 to relevant circumstance modifier)
+      -20: somewhat wary of you (-4 to relevant circumstance modifier)
+      -10: indifferent (-2 to relevant circumstance modifier)
+      0: neutral
+      1: mildly trusting of you (+1 to relevant circumstance modifier)
+      20: somewhat trusting of you (+2 to relevant circumstance modifier)
+      40: trust you (+4 to relevant circumstance modifier)
+      80: trust you as a confidant (+7 to relevant circumstance modifier)
+      120: trust you as a confidant and ally (+10 to relevant circumstance modifier)

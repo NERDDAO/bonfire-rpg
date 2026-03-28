@@ -1,0 +1,253 @@
+# Players & Party API
+
+Common payloads: see `docs/api/common.md`.
+
+## POST /api/player
+Create a new player and set as current.
+
+Request:
+- Body (optional): `{ name?: string, attributes?: object, level?: number }`
+
+Response:
+- 200: `{ success: true, player: NpcProfile, message }`
+- 400: `{ success: false, error }`
+
+## GET /api/player
+Get the current player.
+
+Response:
+- 200: `{ success: true, player: NpcProfile }`
+- 404: `{ success: false, error: 'No current player found' }`
+
+## GET /api/player/ability-selection
+Get the player-only pending ability draft state (and generate the next option set if needed).
+
+Request:
+- Query (optional): `generateOptions`
+  - `generateOptions=0|false|no` returns pending state without generating new options.
+  - omitted/other values generate missing options for the next pending level.
+
+Response:
+- 200: `{ success: true, pending: boolean, abilitySelection, player: NpcProfile }`
+- 400: `{ success: false, error }` (invalid current player type)
+- 404: `{ success: false, error }`
+- 500: `{ success: false, error }`
+
+Notes:
+- When no game is currently loaded/started (`Globals.gameLoaded === false`), this endpoint returns `pending: false` and does not generate ability options.
+- `abilitySelection.pending` indicates whether gameplay is blocked by unfilled level ability picks.
+- When pending, `abilitySelection.selection` includes:
+  - `level`
+  - `requiredSelections`
+  - `optionsPerLevel`
+  - `optionsReady`
+  - `optionsToGenerate`
+  - `options` (card choices)
+  - `preselectedAbilityNames` (already-owned abilities for that level)
+
+## POST /api/player/ability-selection/submit
+Submit selected abilities for the current pending level.
+
+Request:
+- Body: `{ level: number, selectedAbilityNames: string[] }`
+
+Response:
+- 200: `{ success: true, pending: boolean, abilitySelection, player: NpcProfile }`
+- 400/404/500: `{ success: false, error }`
+
+## GET /api/players
+List all players.
+
+Response:
+- 200: `{ success: true, players: NpcProfile[], count, currentPlayer }`
+
+## POST /api/player/set-current
+Set the current player.
+
+Request:
+- Body: `{ playerId: string }`
+
+Response:
+- 200: `{ success: true, currentPlayer: NpcProfile, message }`
+- 400/404/500 with `{ success: false, error }`
+
+## GET /api/player/party
+List party members for current player.
+
+Response:
+- 200: `{ success: true, members: NpcProfile[], count }`
+- 404: `{ success: false, error }`
+
+## POST /api/player/party
+Add a party member by id.
+
+Request:
+- Body: `{ ownerId: string, memberId: string }`
+
+Response:
+- 200: `{ success: true, message, members }`
+  - `members` is an array of **member ids** (not profiles).
+- 400/404/500 with `{ success: false, error }`
+
+## DELETE /api/player/party
+Remove a party member by id.
+
+Request:
+- Body: `{ ownerId: string, memberId: string }`
+
+Response:
+- 200: `{ success: true, message, members }` (`members` is an array of ids)
+- 400/404/500 with `{ success: false, error }`
+
+## POST /api/player/move
+Move the current player to a connected location.
+
+Request:
+- Body: `{ destinationId?: string, direction?: string, expectedOriginLocationId: string }`
+  - At least one of `destinationId` or `direction` is required.
+  - `expectedOriginLocationId` is required and must match the current server-side player location.
+
+Response:
+- 200: `{ success: true, location: LocationResponse, message, direction }`
+- 400: `{ success: false, error }` (missing args/origin)
+- 404: `{ success: false, error }` (destination not found)
+- 409: `{ success: false, error }` (origin mismatch, pending ability selection, or another move already in progress)
+- 500: `{ success: false, error }`
+
+Notes:
+- Move requests are guarded by a per-player non-blocking server lock to prevent concurrent double-move races.
+- After successful move resolution, the server runs strict location/region/exit integrity checks and fails loudly on corruption.
+
+## PUT /api/player/attributes
+Update player attributes.
+
+Request:
+- Body: `{ attributes: Record<string, number> }`
+
+Response:
+- 200: `{ success: true, player: NpcProfile, pendingAbilitySelection, message }`
+- 400/404 with `{ success: false, error }`
+
+## PUT /api/player/health
+Modify player health.
+
+Request:
+- Body: `{ amount: number, reason?: string }`
+
+Response:
+- 200: `{ success: true, healthChange, player: NpcProfile, message }`
+- 400/404 with `{ success: false, error }`
+
+## POST /api/player/levelup
+Level up the current player.
+
+Notes:
+- Level-up events are appended to chat history as `type: level-up` entries.
+- These level-up entries are excluded from base-context `olderStoryHistory` and `recentStoryHistory` assembly.
+
+Response:
+- 200: `{ success: true, player: NpcProfile, message }`
+- 400/404 with `{ success: false, error }`
+
+## GET /api/player/needs
+Get need bars for the current player.
+
+Response:
+- 200: `{ success: true, needs: NeedBar[], includePlayerOnly, player }`
+- 404/500 with `{ success: false, error }`
+
+## PUT /api/player/needs
+Update need bars.
+
+Request:
+- Body: `{ needs: Array<{ id: string, value: number }> }`
+
+Response:
+- 200: `{ success: true, message, needs: NeedBar[], includePlayerOnly, player, applied: NeedBar[] }`
+- 400/404 with `{ success: false, error }`
+
+## POST /api/player/generate-attributes
+Generate new attributes for current player.
+
+Request:
+- Body: `{ method?: string }`
+
+Response:
+- 200: `{ success: true, player: NpcProfile, generatedAttributes, method, message }`
+- 400/404 with `{ success: false, error }`
+
+## POST /api/player/update-stats
+Update player stats (admin-style edit).
+
+Request:
+- Body supports: `name`, `description`, `level`, `health`, `attributes`, `skills`, `statusEffects`
+- New skill names in `skills` now trigger skill-metadata generation (name/description/attribute) via the existing skill generation pipeline, then are registered into the runtime skill registry and `Player.availableSkills` before assignment.
+- Rejects `unspentSkillPoints` and `unspentAttributePoints` (400) because pools are formula-derived at read time.
+- Attribute updates are validated by `Player.setAttribute(...)` definitions; the route no longer hard-limits values to a fixed `3..18` range.
+
+Response:
+- 200: `{ success: true, player: NpcProfile, message, imageNeedsUpdate }`
+- 400/404/500 with `{ success: false, error }`
+
+## PUT /api/player/status
+Update player status effects directly.
+
+Request:
+- Body: `{ statusEffects: array | null }` (required)
+
+Response:
+- 200: `{ success: true, message, player: NpcProfile }`
+- 400/404 with `{ success: false, error }`
+
+## POST /api/player/create-from-stats
+Create a new player from a stats form and set as current.
+
+Request:
+- Body requires `name`; supports `description`, `level`, `health`, `attributes`, `skills`, `statusEffects`
+- Rejects `unspentSkillPoints` and `unspentAttributePoints` (400) because pools are formula-derived at read time.
+
+Response:
+- 200: `{ success: true, player: NpcProfile, message }`
+- 400/500 with `{ success: false, error }`
+
+## POST /api/player/skills/:skillName/increase
+Increase a skill rank.
+
+Request:
+- Path: `skillName`
+- Body: `{ amount?: number }` (defaults to 1)
+
+Response:
+- 200: `{ success: true, player: NpcProfile, skill: { name, rank }, amount }`
+- 400/404 with `{ success: false, error }`
+
+## POST /api/player/equip
+Equip/unequip an item in a specific slot for the current player.
+
+Request:
+- Body: `{ slotName: string, itemId?: string }`
+  - If `itemId` is omitted, the slot is cleared (unequipped).
+
+Response:
+- 200: `{ success: true, player: NpcProfile, message }`
+- 400/404/500 with `{ success: false, error }`
+
+## POST /api/players/:id/portrait
+Trigger portrait generation for a player.
+
+Request:
+- Path: `id`
+
+Response:
+- 200: `{ success: true, player: { id, name, imageId }, imageGeneration, message }`
+- 202: `{ success: false, player: { ... }, imageGeneration, message: 'Portrait job already in progress' }`
+- 409: `{ success: false, error, reason, player: { ... } }` (skipped)
+- 503: `{ success: false, error }` (image generation disabled/unavailable)
+- 404/500 with `{ success: false, error }`
+
+## GET /api/gear-slots
+List gear slot types.
+
+Response:
+- 200: `{ success: true, slotTypes: string[] }`
+- 500: `{ success: false, error, details }`

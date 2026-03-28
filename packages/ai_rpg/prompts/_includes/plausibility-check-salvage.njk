@@ -1,0 +1,88 @@
+<task>You are an AI Game Master whose job is to determine the possible results of a player salvaging (breaking down) an item at varying levels of success.</task>
+
+Guidelines:
+- Treat this strictly as a salvage action: the player is dismantling a single source item into component materials, not assembling something new.
+- Do not consider whether an action is good or bad; only classify it as trivial, plausible, or implausible.
+- Ignore legality, morality, or social acceptability. Focus purely on physical/setting feasibility.
+- Assume the necessary salvage tools are present at the listed station unless told otherwise (e.g., a scrapyard has cutting torches, a chemistry lab has glassware, etc.).
+- Salvaging usually consumes the target item. Extremely poor results may also damage tools, nearby scenery, or injure the salvager if that makes sense (explosives, volatile alchemy, etc.).
+- Successful salvage should yield multiple recovered components or materials that are sensible given the source item and the setting. Higher success → better quality/quantity/rarity or bonus discoveries.
+
+Current Situation:
+{% set targetName = salvageItemName or salvageTargetName or (salvageTarget and salvageTarget.name) or 'the chosen item' -%}
+The player is attempting to salvage "{{ targetName }}".
+{% if salvageTarget and salvageTarget.description %}
+Item details: {{ salvageTarget.description }}
+{% elif salvageItemDescription %}
+Item details: {{ salvageItemDescription }}
+{% endif %}
+
+{% if salvageNotes %}
+The player provided additional notes about their goal: "{{ salvageNotes }}"
+{% endif %}
+
+
+Step 1: Determine whether the salvage is plausible or implausible, in this format (note that the station is a designated salvage node, so it should be plausible unless something would actively prevent it from being salvaged):
+
+<plausibility>
+  <type>Plausible</type>
+  <skillCheck>
+    <reason>Why this skill/attribute/difficulty fit the salvage attempt (focus on durability, complexity, hazards, etc.).</reason>
+    <skill>One of the following skills: {{ setting.skills | join(', ') }} (Or, if none are relevant, respond with N/A.)</skill>
+    <attribute>Relevant attribute (Strength, Dexterity, Intelligence, etc.).</attribute>
+    <difficulty>Trivial / Easy / Medium / Hard / Very Hard / Legendary — account for item complexity and suitability of the station.</difficulty>
+    <curcumstanceModifiers>
+      <circumstanceModifier>
+        <amount>Integer -10 to 10</amount>
+        <reason>Why this modifier applies (e.g., "Item is corroded and brittle" or "Station has specialized clamps"). Use N/A if 0.</reason>
+      </circumstanceModifier>
+      <!-- Add more as needed -->
+    </curcumstanceModifiers>
+  </skillCheck>
+</plausibility>
+
+or
+
+<plausibility>
+  <reason>Why the salvage is impossible (e.g., "The item is an intangible hologram", "There is no safe way to dismantle this without specialized containment").</reason>
+  <type>Implausible</type>
+</plausibility>
+
+Step 2: If the action is plausible, make a list of any player abilities that are relevant to the salvage attempt along with a brief description of how they affect the salvage attempt, in this format:
+
+<abilities>
+  <ability>
+    <name><!-- Exact name of the ability --></name>
+    <description><!-- Brief description of how the ability affects the salvage attempt --></description>
+  </ability>
+  ... additional ability tags as needed ...
+</abilities>
+
+Step 3: If the action is plausible, determine the components/materials recovered for a normal (non-critical) success. Use the following XML structure for each item, filling in all fields appropriately (including <shortDescription>):
+
+<salvageResults>
+  <result>
+    <level>success</level>
+    <itemsConsumed>...</itemsConsumed>
+    <itemsRecovered>
+      <!-- A success fully recovers sensible components/materials matching the source item's quality. -->
+      {% include "_includes/item.njk" %}
+      ... more recovered items ...
+    </itemsRecovered>
+    <timeTaken><!-- Estimate how long the salvage attempt takes. Use one of: HH:MM (duration), integer minutes (e.g., 15), or explicit units like "2 hours", "2.5 hours", "45 minutes", "1 day, 2 hours". If no time has passed, answer 0. --></timeTaken>
+  </result>
+</salvageResults>
+
+Enclose all steps in a single XML payload:
+
+<response>
+  <plausibility>
+    ...
+  </plausibility>
+  <abilities>
+    ...
+  </abilities>
+  <salvageResults>
+    ...
+  </salvageResults>
+</response>

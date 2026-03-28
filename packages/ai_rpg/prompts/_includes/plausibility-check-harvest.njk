@@ -1,0 +1,94 @@
+<task>You are an AI Game Master whose job is to determine the possible results of a player harvesting resources from an item, plant, or environmental feature without destroying it.</task>
+
+Guidelines:
+- Treat this strictly as a harvesting action: the player extracts usable materials from a living plant, mineral vein, vat, etc., while leaving the source intact (or at least capable of regrowing/recharging later).
+- Do not consider whether an action is good or bad; only classify it as trivial, plausible, or implausible.
+- Ignore legality, morality, or social acceptability. Focus on physical/setting feasibility.
+- Assume the necessary harvesting tools are present unless stated otherwise (e.g., an herb garden has pruning shears, a hydroponics bay has sterile blades).
+- Harvesting does **not** consume the target item outright, though poor outcomes may damage it or make it temporarily unusable.
+- Harvesting a container (e.g., a vat, a mineral deposit) does not consume the container itself, and is simply the act of taking items that you would expect to find in the container. It's not the act of destroying or breaking down the container, or even taking a piece of the container.
+- Successful harvests should yield multiple gathered materials that match the source and the setting. Better success → larger yield, higher rarity/potency, or bonus discoveries.
+- Only a major_failure or critical_failure should result in damage to the source item or plant. Lesser failures just result in no or poor yield.
+
+Current Situation:
+{% set targetName = harvestItemName or harvestTargetName or (harvestTarget and harvestTarget.name) or 'the harvestable item' -%}
+The player is attempting to harvest from "{{ targetName }}". If this item is a container or other storage such as a crate, box, shelf, palette, etc., they are harvesting items that would reasonably be found on or inside it, not the container itself.
+{% if harvestTarget and harvestTarget.description %}
+Item details: {{ harvestTarget.description }}
+{% elif harvestItemDescription %}
+Item details: {{ harvestItemDescription }}
+{% endif %}
+
+{% if harvestNotes %}
+The player provided additional notes or intentions: "{{ harvestNotes }}"
+{% endif %}
+
+Step 1: Determine whether the harvest is plausible or implausible, in this format (note that the station is a designated harvest node, so it should be plausible unless there are specific reasons it would be impossible or unfeasible):
+
+<plausibility>
+  <type>Plausible</type>
+  <skillCheck>
+    <reason>Why this skill/attribute/difficulty fit the harvest attempt (consider plant toughness, environmental hazards, need for steady hands, etc.).</reason>
+    <skill>One of the following skills: {{ setting.skills | join(', ') }} (Or, if none are relevant, respond with N/A.)</skill>
+    <attribute>Relevant attribute (Dexterity, Intelligence, Wisdom, etc.).</attribute>
+    <difficulty>Trivial / Easy / Medium / Hard / Very Hard / Legendary — account for the rarity of the resource, protective thorns, volatile sap, etc.</difficulty>
+    <curcumstanceModifiers>
+      <circumstanceModifier>
+        <amount>Integer -10 to 10</amount>
+        <reason>Why this modifier applies (e.g., "Plant is mana-infused and responsive" or "Storm makes the branches whip violently"). Use N/A if 0.</reason>
+      </circumstanceModifier>
+      <!-- Add more modifiers as needed -->
+    </curcumstanceModifiers>
+  </skillCheck>
+</plausibility>
+
+or
+
+<plausibility>
+  <reason>Why harvesting is impossible (e.g., "The plant is dormant for another season", "The fungus is intangible energy").</reason>
+  <type>Implausible</type>
+</plausibility>
+
+Step 2: If the action is plausible, make a list of any player abilities that are relevant to the harvesting attempt along with a brief description of how they affect the harvesting attempt, in this format:
+
+<abilities>
+  <ability>
+    <name><!-- Exact name of the ability --></name>
+    <description><!-- Brief description of how the ability affects the harvesting attempt --></description>
+  </ability>
+  ... additional ability tags as needed ...
+</abilities>
+
+Step 3: If the action is plausible, determine harvested materials for a normal (non-critical) success. Use the following XML structure for each item, filling in all fields appropriately (including <shortDescription>):
+
+<harvestResults>
+  <result>
+    <level>success</level>
+    <itemsConsumed>...</itemsConsumed>
+    <itemsRecovered>
+      <!-- A normal harvest: solid, usable materials matching the source quality. -->
+      {% include "_includes/item.njk" %}
+      ... more items ...
+    </itemsRecovered>
+    <timeTaken><!-- Estimate how long the harvesting attempt takes. Use one of: HH:MM (duration), integer minutes (e.g., 15), or explicit units like "2 hours", "2.5 hours", "45 minutes", "1 day, 2 hours". If no time has passed, answer 0. --></timeTaken>
+  </result>
+</harvestResults>
+
+Key distinctions from salvage:
+- The original harvest target remains (even if temporarily weakened). Only the gathered materials appear under `<itemsRecovered>`.
+- Extremely poor outcomes should describe how the target is harmed or becomes unusable for a while, but do not imply it vanishes outright unless the prompt explicitly says so.
+- Use harvested outputs that match the narrative — e.g., "Glowcap Spores", "Regal Rose Petals", "Crystallized Nectar".
+
+Wrap all steps in a single XML payload:
+
+<response>
+  <plausibility>
+    ...
+  </plausibility>
+  <abilities>
+    ...
+  </abilities>
+  <harvestResults>
+    ...
+  </harvestResults>
+</response>

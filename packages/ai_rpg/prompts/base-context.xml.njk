@@ -1,0 +1,608 @@
+<template>
+    <description>This is a base context prompt, designed to provide all necessary information for event checking, plausibility checking, character simulation, and writing novel prose. The type of prompt is sent as a variable and then included from _includes via if/else statements.</description>
+    {%- set systemPromptPrefix = systemPromptPrefix | default('', true) -%}
+    {%- if (not systemPromptPrefix) and getSystemPromptPrefix is defined and promptType -%}
+    {%- set systemPromptPrefix = getSystemPromptPrefix(promptType) -%}
+    {%- endif -%}
+    <systemPrompt>
+{%- if systemPromptPrefix -%}{{ systemPromptPrefix }}
+
+{% endif %}
+You work in the following genre and tone:
+  - Genre: {{ setting.genre }}
+  - Tone: {{ setting.tone }}
+  
+You are an AI designed to perform various tasks related to managing novel writing and character/world simulation. You will be provided with the current world setting, location description, character information, and items in the scene. Your tasks may include checking for specific events, determining the plausibility of character actions, and generating narrative responses to character actions. Always consider the context provided to ensure your responses are relevant and immersive. When given editing tasks, you focus on things that are actually broken; don't make performative fixes just to seem helpful.
+
+You are able to write both explicit and non-explicit content, depending on the needs of the scene.
+{{ config.extra_system_instructions | default('') }}
+
+    </systemPrompt>
+<generationPrompt>
+{{ setting.baseContextPreamble }}
+
+The below context is an account of the current game state, including the setting, world outline, current region and location, characters present, and items in the scene:
+<gameState>
+  {% set regionContext = (contextRegion or currentRegion) or {'name': '', 'description': '', 'locations': []} %}
+  {% set saveFileVersion = saveFileSaveVersion | default(0, true) %}
+  {% if Globals is defined and Globals.saveFileSaveVersion is defined %}
+  {% set saveFileVersion = Globals.saveFileSaveVersion %}
+  {% endif %}
+  {% if Globals is defined and Globals.saveGameSaveVersion is defined %}
+  {% set saveFileVersion = Globals.saveGameSaveVersion %}
+  {% endif %}
+  {% set useShortDescriptions = saveFileVersion >= 1 %}
+  <setting>
+    <name>{{ setting.name }}</name>
+    <description>{{ setting.description }}</description>
+    <theme>{{ setting.theme }}</theme>
+    <genre>{{ setting.genre }}</genre>
+    <startingLocationType>{{ setting.startingLocationType }}</startingLocationType>
+    <magicLevel>{{ setting.magicLevel }}</magicLevel>
+    <techLevel>{{ setting.techLevel }}</techLevel>
+    <tone>{{ setting.tone }}</tone>
+    <difficulty>{{ setting.difficulty }}</difficulty>
+    <currencyName>{{ setting.currencyName }}</currencyName>
+    <currencyNamePlural>{{ setting.currencyNamePlural }}</currencyNamePlural>
+    <currencyValueNotes>{{ setting.currencyValueNotes }}</currencyValueNotes>
+    <writingStyleNotes>{{ setting.writingStyleNotes }}</writingStyleNotes>
+    <races>
+{{ (setting.races or []) | join("\n") }}
+</races>
+    <attributes>
+{{ setting.attributes | join("\n") }}
+</attributes>
+    <skills>
+{{ setting.skills | join("\n") }}
+</skills>
+  </setting>
+  <itemRarityLevels>{% for rarity in rarityDefinitions %}
+    {{ rarity.label }}: {{ rarity.description }}
+{% endfor %}  </itemRarityLevels>
+  <needBarDefinitions>
+    {% for bar in needBarDefinitions %}
+    <needBar>
+      <id>{{ bar.id | default('unknown', true) }}</id>
+      <name>{{ bar.name }}</name>
+      <description>{{ bar.description }}</description>
+      <playerOnly>{{ bar.playerOnly | default(false) }}</playerOnly>
+      <relatedAttribute>{{ bar.relatedAttribute | default('', true) }}</relatedAttribute>
+      <min>{{ bar.min | default('', true) }}</min>
+      <max>{{ bar.max | default('', true) }}</max>
+      <initialValue>{{ bar.initialValue | default('', true) }}</initialValue>
+      <changePerTurn>{{ bar.changePerTurn | default(0) }}</changePerTurn>
+      <relativeToLevel>{{ bar.relativeToLevel | default(false) }}</relativeToLevel>
+      <effectThresholds>
+        {% for threshold in bar.effectThresholds %}
+        <threshold>
+          <value>{{ threshold.threshold | default('', true) }}</value>
+          <name>{{ threshold.name | default('', true) }}</name>
+          <effect>{{ threshold.effect | default('', true) }}</effect>
+        </threshold>
+        {% endfor %}
+      </effectThresholds>
+      <increases>
+        <small>
+          {% for item in bar.increases.small %}<trigger>{{ item }}</trigger>{% endfor %}
+        </small>
+        <medium>
+          {% for item in bar.increases.medium %}<trigger>{{ item }}</trigger>{% endfor %}
+        </medium>
+        <large>
+          {% for item in bar.increases.large %}<trigger>{{ item }}</trigger>{% endfor %}
+        </large>
+        <fill>
+          {% for item in bar.increases.fill %}<trigger>{{ item }}</trigger>{% endfor %}
+        </fill>
+      </increases>
+      <decreases>
+        <small>
+          {% for item in bar.decreases.small %}<trigger>{{ item }}</trigger>{% endfor %}
+        </small>
+        <large>
+          {% for item in bar.decreases.large %}<trigger>{{ item }}</trigger>{% endfor %}
+        </large>
+      </decreases>
+    </needBar>
+    {% endfor %}
+  </needBarDefinitions>
+  {% if gameHistory and gameHistory | trim and not omitGameHistory %}
+  <olderStoryHistory>{{ gameHistory }}</olderStoryHistory>
+  {% endif %}
+  <worldOutline>
+    {% for region in worldOutline.regions %}
+    <region name="{{ region.name | escape }}">
+      {{ region.label }}
+      {% for loc in region.locations %}<location>{{ loc.label }}</location>
+      {% endfor %}
+    </region>
+    {% endfor %}
+  </worldOutline>
+  <factions>
+    {% if factions and factions | length %}
+    <selectionNotes>Use the full faction name from this list. Use "None" if no faction applies.</selectionNotes>
+    {% for faction in factions %}
+    <faction>
+      <name>{{ faction.name }}</name>
+      {% if faction.shortDescription %}<shortDescription>{{ faction.shortDescription }}</shortDescription>{% endif %}
+      {% if faction.description %}<description>{{ faction.description }}</description>{% endif %}
+      {% if faction.tags and faction.tags | length %}
+      <tags>
+        {% for tag in faction.tags %}<tag>{{ tag }}</tag>{% endfor %}
+      </tags>
+      {% endif %}
+      {% if faction.goals and faction.goals | length %}
+      <goals>
+        {% for goal in faction.goals %}<goal>{{ goal }}</goal>{% endfor %}
+      </goals>
+      {% endif %}
+      {% if faction.homeRegionName %}<homeRegionName>{{ faction.homeRegionName }}</homeRegionName>{% endif %}
+    </faction>
+    {% endfor %}
+    {% else %}
+    <selectionNotes>No factions exist yet. Use "None" for faction fields.</selectionNotes>
+    {% endif %}
+    <noneOption>None</noneOption>
+  </factions>
+  <currentRegion>
+    <name>{{ regionContext.name }}</name>
+    <description>{{ regionContext.description }}</description>
+    <secrets>
+      {% for secret in regionContext.secrets %}<secret>{{ secret }}</secret>
+      {% endfor %} 
+    </secrets>
+    <locations>
+      {% for loc in regionContext.locations %}<locationName>{{ loc.name }}</locationName>
+      {% endfor %}</locations>
+    <connectedRegions>
+      {% for reg in regionContext.connectedRegions %}<regionName>{{ reg.name }}</regionName>
+      {% endfor %}
+    </connectedRegions>
+  </currentRegion>
+  {% if currentLocation %}
+  <currentLocation>
+    <name>{{ currentLocation.name }}</name>
+    <description>{{ currentLocation.description }}</description>
+    <statusEffects>
+      {% for effect in currentLocation.statusEffects %}
+      <effect>
+        <description>{{ effect.description }}</description>
+        <duration>{{ effect.duration | default('unknown') }}</duration>
+      </effect>
+      {% endfor %}
+    </statusEffects>
+    <exits>
+      {% for exit in currentLocation.exits %}
+      <exit>
+        <name>{{ exit.name }}</name>
+        <isVehicle>{{ exit.isVehicle | default(false) }}</isVehicle>
+        {% if exit.isVehicle %}<vehicleType>{{ exit.vehicleType | default('', true) }}</vehicleType>{% endif %}
+      </exit>
+      {% endfor %}
+    </exits>
+    <items>{% if useShortDescriptions -%}
+{%- for item in currentLocation.items -%}
+{{ item.name }}: {{ item.rarity | default('common', true) }} level {{ item.level | default(1, true) }} - {{ item.shortDescription | default(item.description, true) }}{% if item.equippedSlot %} (Equipped to {{ item.equippedSlot }}){% endif %}{% if not loop.last %}{{ "\n" }}{% endif %}
+{%- endfor -%}
+{%- else %}
+      {% for item in currentLocation.items %}
+      <item>
+        <name>{{ item.name }}</name>
+        <description>{{ item.description }}</description>
+        <isScenery>{{ item.isScenery | default(false) }}</isScenery>
+        <isVehicle>{{ item.isVehicle | default(false) }}</isVehicle>
+        <rarity>{{ item.rarity | default('common') }}</rarity>
+        <value>{{ item.value | default(0) }}</value>
+        <statusEffects>
+          {% for effect in item.statusEffects %}
+          <effect>
+            <description>{{ effect.description }}</description>
+            <duration>{{ effect.duration | default('unknown') }}</duration>
+          </effect>
+          {% endfor %}
+        </statusEffects>
+        <weight>{{ item.weight | default(0) }}</weight>
+        <properties>{{ item.properties | default('', true) }}</properties>
+      </item>
+      {% endfor %}
+    {% endif %}</items>
+    <npcs>
+      {% for npc in npcs %}
+      <npc>
+        <id>{{ npc.id | default('unknown', true) }}</id>
+        <name>{{ npc.name }}</name>
+        <description>{{ npc.description }}</description>
+        <class>{{ npc.class | default('Unknown') }}</class>
+        <race>{{ npc.race | default('Unknown') }}</race>
+        <resistances>{{ npc.resistances | default('', true) }}</resistances>
+        <vulnerabilities>{{ npc.vulnerabilities | default('', true) }}</vulnerabilities>
+        <personality>
+          <type>{{ npc.personality.type | default('Unknown', true) }}</type>
+          <traits>{{ npc.personality.traits | default('None', true) }}</traits>
+          <goals>
+              {% for goal in npc.personality.goals %}
+              <goal>{{ goal }}</goal>
+              {% endfor %}
+          </goals>
+          <notes>{{ npc.personality.notes | default('', true) }}</notes>
+        </personality>
+{#        <health>{{ npc.health | default('unknown') }}</health>
+        <maxHealth>{{ npc.maxHealth | default('unknown') }}</maxHealth> #}
+        <dispositionsTowardsPlayer>
+          {% for disposition in npc.dispositionsTowardsPlayer %}
+          <dispositionTowardsPlayer>
+            <type>{{ disposition.type }}</type>
+            <intensity>{{ disposition.intensityName }}</intensity>
+          </dispositionTowardsPlayer>
+          {% endfor %}
+        </dispositionsTowardsPlayer>
+        <importantMemories>
+          {% for entry in npc.selectedImportantMemories %}
+          <memory>{{ entry.memory }}</memory>
+          {% endfor %}
+        </importantMemories>
+        {% if not omitInventoryItems %}
+        <inventory>{% if useShortDescriptions -%}
+{%- for item in npc.inventory -%}
+{{ item.name }}: {{ item.rarity | default('common', true) }} level {{ item.level | default(1, true) }} - {{ item.shortDescription | default(item.description, true) }}{% if item.equippedSlot %} (Equipped to {{ item.equippedSlot }}){% endif %}{% if not loop.last %}{{ "\n" }}{% endif %}
+{%- endfor -%}
+{%- else %}
+          {% for item in npc.inventory %}<item>
+            <name>{{ item.name }}</name>
+            <equippedSlot>{{ item.equippedSlot | default('none') }}</equippedSlot>
+          </item>
+        {% endfor %}{% endif %}</inventory>
+        {% endif %}
+        <skills>
+          {% for skill in npc.skills %}{% if skill.value > 1 %}{{ skill.name }}, {% endif %}{% endfor %}
+        </skills>
+        {% if not omitAbilities %}
+        <abilities>{% if useShortDescriptions -%}
+{%- for ability in npc.abilities -%}
+{{ ability.name }}: level {{ ability.level | default(1, true) }} - {{ ability.shortDescription | default(ability.description, true) }}{% if not loop.last %}{{ "\n" }}{% endif %}
+{%- endfor -%}
+{%- else %}
+          {% for ability in npc.abilities %}
+          <ability>
+            <name>{{ ability.name }}</name>
+            <description>{{ ability.description }}</description>
+            <type>{{ ability.type }}</type>
+            <level>{{ ability.level }}</level>
+          </ability>
+          {% endfor %}
+        {% endif %}</abilities>
+        {% endif %}
+        <statusEffects>
+          {% for effect in npc.statusEffects %}
+          <effect>
+            <description>{{ effect.description }}</description>
+            <duration>{{ effect.duration | default('unknown') }}</duration>
+          </effect>
+          {% endfor %}
+        </statusEffects>
+        <needBars>
+          {% for bar in npc.needBars %}
+          <needBar>
+            <name>{{ bar.name }}</name>
+            <currentThreshold>
+              <name>{% if bar.currentThreshold %}{{ bar.currentThreshold.name | default('Neutral') }}{% else %}Neutral{% endif %}</name>
+              <effect>{% if bar.currentThreshold %}{{ bar.currentThreshold.effect | default('No active effect') }}{% else %}No active effect{% endif %}</effect>
+              <value>{% if bar.currentThreshold %}{{ bar.currentThreshold.threshold | default('', true) }}{% else %}{% endif %}</value>
+            </currentThreshold>
+          </needBar>
+          {% endfor %}
+        </needBars>
+      </npc>
+      {% endfor %}
+    </npcs>
+    <itemsInScene>{% if useShortDescriptions -%}
+{%- for item in itemsInScene %}{% if not item.isScenery -%}
+{{ item.name }}: {{ item.rarity | default('common', true) }} level {{ item.level | default(1, true) }} - {{ item.shortDescription | default(item.description, true) }}{% if item.equippedSlot %} (Equipped to {{ item.equippedSlot }}){% endif %}{% if not loop.last %}{{ "\n" }}{% endif %}
+{%- endif %}{%- endfor -%}
+{%- else %}
+      {% for item in itemsInScene %}{% if not item.isScenery %}
+      <item>
+        <name>{{ item.name }}</name>
+        <description>{{ item.description }}</description>
+        <isScenery>{{ item.isScenery | default(false) }}</isScenery>
+        <isVehicle>{{ item.isVehicle | default(false) }}</isVehicle>
+        <rarity>{{ item.rarity | default('common') }}</rarity>
+        <value>{{ item.value | default(0) }}</value>
+        <statusEffects>
+          {% for effect in item.statusEffects %}
+          <effect>
+            <description>{{ effect.description }}</description>
+            <duration>{{ effect.duration | default('unknown') }}</duration>
+          </effect>
+          {% endfor %}
+        </statusEffects>
+        <weight>{{ item.weight | default(0) }}</weight>
+        <properties>{{ item.properties | default('', true) }}</properties>
+      </item>
+      {% endif %}{% endfor %}
+    {% endif %}</itemsInScene>
+    <sceneryList>{% if useShortDescriptions -%}
+{%- for item in itemsInScene %}{% if item.isScenery -%}
+{{ item.name }}: {{ item.rarity | default('common', true) }} level {{ item.level | default(1, true) }} - {{ item.shortDescription | default(item.description, true) }}{% if item.equippedSlot %} (Equipped to {{ item.equippedSlot }}){% endif %}{% if not loop.last %}{{ "\n" }}{% endif %}
+{%- endif %}{%- endfor -%}
+{%- else %}
+      {% for item in itemsInScene %}{% if item.isScenery %}
+      <sceneryItem>
+        <name>{{ item.name }}</name>
+        <description>{{ item.description }}</description>
+        <isScenery>{{ item.isScenery | default(true) }}</isScenery>
+        <isVehicle>{{ item.isVehicle | default(false) }}</isVehicle>
+        <rarity>{{ item.rarity | default('common') }}</rarity>
+        <value>{{ item.value | default(0) }}</value>
+        <statusEffects>
+          {% for effect in item.statusEffects %}
+          <effect>
+            <description>{{ effect.description }}</description>
+            <duration>{{ effect.duration | default('unknown') }}</duration>
+          </effect>
+          {% endfor %}
+        </statusEffects>
+        <weight>{{ item.weight | default(0) }}</weight>
+        <properties>{{ item.properties | default('', true) }}</properties>
+      </sceneryItem>
+      {% endif %}{% endfor %}
+    {% endif %}</sceneryList>  
+  </currentLocation>
+  {% endif %}
+  <player>
+    <name>{{ currentPlayer.name }}</name>
+    <description>{{ currentPlayer.description }}</description>{#
+    <health>{{ currentPlayer.health }}</health>
+    <maxHealth>{{ currentPlayer.maxHealth }}</maxHealth>#}
+    <class>{{ currentPlayer.class }}</class>
+    <race>{{ currentPlayer.race }}</race>
+    <currency>{{ currentPlayer.currency | default(0) }}</currency>
+    <statusEffects>
+      {% for effect in currentPlayer.statusEffects %}
+      <effect>
+        <description>{{ effect.description }}</description>
+        <duration>{{ effect.duration | default('unknown') }}</duration>
+      </effect>
+      {% endfor %}
+    </statusEffects>
+      <skills>
+        {% for skill in currentPlayer.skills %}{% if skill.value > 1 %}{{ skill.name }}, {% endif %}{% endfor %}
+      </skills>
+    {% if not omitAbilities %}
+    <abilities>{% if useShortDescriptions -%}
+{%- for ability in currentPlayer.abilities -%}
+{{ ability.name }}: level {{ ability.level | default(1, true) }} - {{ ability.shortDescription | default(ability.description, true) }}{% if not loop.last %}{{ "\n" }}{% endif %}
+{%- endfor -%}
+{%- else %}
+      {% for ability in currentPlayer.abilities %}
+      <ability>
+        <name>{{ ability.name }}</name>
+        <description>{{ ability.description }}</description>
+        <type>{{ ability.type }}</type>
+        <level>{{ ability.level }}</level>
+      </ability>
+      {% endfor %}
+    {% endif %}</abilities>
+    {% endif %}
+    {% if not omitInventoryItems %}
+    <inventory>{% if useShortDescriptions -%}
+{%- for item in currentPlayer.inventory -%}
+{{ item.name }}: {{ item.rarity | default('common', true) }} level {{ item.level | default(1, true) }} - {{ item.shortDescription | default(item.description, true) }}{% if item.equippedSlot %} (Equipped to {{ item.equippedSlot }}){% endif %}{% if not loop.last %}{{ "\n" }}{% endif %}
+{%- endfor -%}
+{%- else %}
+      {% for item in currentPlayer.inventory %}
+      <item>
+        <name>{{ item.name }}</name>
+        <description>{{ item.description }}</description>
+        <equippedSlot>{{ item.equippedSlot | default('none') }}</equippedSlot>
+        <statusEffects>
+          {% for effect in item.statusEffects %}
+          <effect>
+            <description>{{ effect.description }}</description>
+            <duration>{{ effect.duration | default('unknown') }}</duration>
+          </effect>
+          {% endfor %}
+        </statusEffects>
+        <value>{{ item.value | default(0) }}</value>
+        <weight>{{ item.weight | default(0) }}</weight>
+        <properties>{{ item.properties | default('', true) }}</properties>
+      </item>
+      {% endfor %}
+    {% endif %}</inventory>
+    {% endif %}
+    <needBars>
+      {% for bar in currentPlayer.needBars %}
+      <needBar>
+        <name>{{ bar.name }}</name>
+        <currentThreshold>
+          <name>{% if bar.currentThreshold %}{{ bar.currentThreshold.name | default('Neutral') }}{% else %}Neutral{% endif %}</name>
+          <effect>{% if bar.currentThreshold %}{{ bar.currentThreshold.effect | default('No active effect') }}{% else %}No active effect{% endif %}</effect>
+          <value>{% if bar.currentThreshold %}{{ bar.currentThreshold.threshold | default('', true) }}{% else %}{% endif %}</value>
+        </currentThreshold>
+      </needBar>
+      {% endfor %}
+    </needBars>
+    {% if not suppressQuestList %}
+    <quests>
+      {% for quest in currentPlayer.currentQuests %}
+      <quest>
+        <name>{{ quest.name }}</name>
+        <description>{{ quest.description }}</description>
+        {% if quest.secretNotes %}<secretNotes>{{ quest.secretNotes }}</secretNotes>{% endif -%}
+        <objectives>
+          {%- for objective in quest.objectives %}
+          <objective completed="{{ objective.completed }}" optional="{{ objective.optional }}" index="{{ loop.index }}">{{ objective.description }}</objective>
+          {% endfor -%}
+        </objectives>
+        <giver>{{ quest.giver }}</giver>
+      </quest>
+      {% endfor %}
+    </quests>
+    {% endif %}
+  </player>
+  <playerParty>
+    {% for member in party %}
+    <member>
+      <id>{{ member.id | default('unknown', true) }}</id>
+      <name>{{ member.name }}</name>
+      <description>{{ member.description }}</description>
+      <class>{{ member.class | default('Unknown') }}</class>
+      <race>{{ member.race | default('Unknown') }}</race>
+      <personality>
+        <type>{{ member.personality.type | default('Unknown', true) }}</type>
+        <traits>{{ member.personality.traits | default('None', true) }}</traits>
+        <goals>
+          {% for goal in member.personality.goals %}<goal>{{ goal }}</goal>
+          {% endfor %}
+        </goals>
+        <notes>{{ member.personality.notes | default('', true) }}</notes>
+      </personality>
+{#      <health>{{ member.health | default('unknown') }}</health>
+      <maxHealth>{{ member.maxHealth | default('unknown') }}</maxHealth> #}
+      <dispositionsTowardsPlayer>
+        {% for disposition in member.dispositionsTowardsPlayer %}
+        <dispositionTowardsPlayer>
+          <type>{{ disposition.type }}</type>
+          <intensity>{{ disposition.intensityName }}</intensity>
+        </dispositionTowardsPlayer>
+        {% endfor %}
+      </dispositionsTowardsPlayer>
+      <importantMemories>
+        {% for entry in member.selectedImportantMemories %}
+        <memory>{{ entry.memory }}</memory>
+        {% endfor %}
+      </importantMemories>
+      {% if not omitInventoryItems %}
+      <inventory>{% if useShortDescriptions -%}
+{%- for item in member.inventory -%}
+{{ item.name }}: {{ item.rarity | default('common', true) }} level {{ item.level | default(1, true) }} - {{ item.shortDescription | default(item.description, true) }}{% if item.equippedSlot %} (Equipped to {{ item.equippedSlot }}){% endif %}{% if not loop.last %}{{ "\n" }}{% endif %}
+{%- endfor -%}
+{%- else %}
+        {% for item in member.inventory %}<item>
+          <name>{{ item.name }}</name>
+          <equippedSlot>{{ item.equippedSlot | default('none') }}</equippedSlot>
+        </item>
+      {% endfor %}{% endif %}</inventory>
+      {% endif %}
+      <skills>
+        {% for skill in member.skills %}{% if skill.value > 1 %}{{ skill.name }}, {% endif %}{% endfor %}
+      </skills>
+      {% if not omitAbilities %}
+      <abilities>{% if useShortDescriptions -%}
+{%- for ability in member.abilities -%}
+{{ ability.name }}: level {{ ability.level | default(1, true) }} - {{ ability.shortDescription | default(ability.description, true) }}{% if not loop.last %}{{ "\n" }}{% endif %}
+{%- endfor -%}
+{%- else %}
+        {% for ability in member.abilities %}
+        <ability>
+          <name>{{ ability.name }}</name>
+          <description>{{ ability.description }}</description>
+          <type>{{ ability.type }}</type>
+          <level>{{ ability.level }}</level>
+        </ability>
+        {% endfor %}
+      {% endif %}</abilities>
+      {% endif %}
+      <statusEffects>
+        {% for effect in member.statusEffects %}
+        <effect>
+          <description>{{ effect.description }}</description>
+          <duration>{{ effect.duration | default('unknown') }}</duration>
+        </effect>
+        {% endfor %}
+      </statusEffects>
+      <needBars>
+        {% for bar in member.needBars %}
+        <needBar>
+          <name>{{ bar.name }}</name>
+          <currentThreshold>
+            <name>{% if bar.currentThreshold %}{{ bar.currentThreshold.name | default('Neutral') }}{% else %}Neutral{% endif %}</name>
+            <effect>{% if bar.currentThreshold %}{{ bar.currentThreshold.effect | default('No active effect') }}{% else %}No active effect{% endif %}</effect>
+            <value>{% if bar.currentThreshold %}{{ bar.currentThreshold.threshold | default('', true) }}{% else %}{% endif %}</value>
+          </currentThreshold>
+        </needBar>
+        {% endfor %}
+      </needBars>
+    </member>
+    {% endfor %}
+  </playerParty>
+  <additionalLore>
+    {{ additionalLore }}
+  </additionalLore>
+  <itemContext>
+    {% if itemContext %}{{ itemContext }}{% endif %}
+  </itemContext>
+  <abilityContext>
+    {% if abilityContext %}{{ abilityContext }}{% endif %}
+  </abilityContext>
+  {% if plotSummary and plotSummary | trim %}
+  <plotSummary>{{ plotSummary }}</plotSummary>
+  {% endif %}
+  {% if plotExpander and plotExpander | trim %}
+  <plotExpander>{{ plotExpander }}</plotExpander>
+  {% endif %}
+  <recentStoryHistory>{{ recentGameHistory }}</recentStoryHistory>
+</gameState>
+<currentConditions>
+  <worldTime>
+    <dateLabel>{{ worldTime.dateLabel }}</dateLabel>
+    <currentTime>{{ worldTime.timeLabel }}</currentTime>
+    <timeSegment>{{ worldTime.segment }}</timeSegment>
+    <season>{{ worldTime.season }}</season>
+    <seasonDescription>{{ worldTime.seasonDescription | default('', true) }}</seasonDescription>
+    {% if worldTime.holiday %}
+    <holiday>
+      <name>{{ worldTime.holiday.name }}</name>
+      <description>{{ worldTime.holiday.description | default('', true) }}</description>
+      <month>{{ worldTime.holiday.month }}</month>
+      <day>{{ worldTime.holiday.day }}</day>
+    </holiday>
+    {% endif %}
+    <lighting>{{ worldTime.lighting }}</lighting>
+  </worldTime>
+  {% if worldTime.hasLocalWeather %}
+  <weather>
+    <name>{{ worldTime.weatherName | default('Unspecified weather', true) }}</name>
+    <description>{{ worldTime.weatherDescription | default('', true) }}</description>
+  </weather>
+  <lightLevel>{{ worldTime.lightLevelDescription | default(worldTime.lighting, true) }}</lightLevel>
+  {% endif %}
+  {% if currentVehicle %}
+  <vehicle>
+    <name>{{ currentVehicle.name | default('', true) }}</name>
+    <description>{{ currentVehicle.description | default('', true) }}</description>
+    <isUnderway>{{ currentVehicle.isUnderway | default(false, true) }}</isUnderway>
+    <hasArrived>{{ currentVehicle.hasArrived | default(false, true) }}</hasArrived>
+    <isArriving>{{ currentVehicle.isArriving | default(false, true) }}</isArriving>
+    {% if currentVehicle.location and (currentVehicle.location | trim) %}
+    <location>{{ currentVehicle.location | default('', true) }}</location>
+    {% endif %}
+    {% if currentVehicle.destination and (currentVehicle.destination | trim) %}
+    <destination>{{ currentVehicle.destination | default('', true) }}</destination>
+    <destinationResolved>{{ currentVehicle.destinationResolved | default(false, true) }}</destinationResolved>
+    {% if currentVehicle.pendingDestination %}
+    <pendingDestination>
+      {% if currentVehicle.pendingDestination.locationName and (currentVehicle.pendingDestination.locationName | trim) %}
+      <location>{{ currentVehicle.pendingDestination.locationName }}</location>
+      {% endif %}
+      {% if currentVehicle.pendingDestination.regionName and (currentVehicle.pendingDestination.regionName | trim) %}
+      <region>{{ currentVehicle.pendingDestination.regionName }}</region>
+      {% endif %}
+      {% if currentVehicle.pendingDestination.rawText and (currentVehicle.pendingDestination.rawText | trim) %}
+      <rawText>{{ currentVehicle.pendingDestination.rawText }}</rawText>
+      {% endif %}
+    </pendingDestination>
+    {% endif %}
+    {% if currentVehicle.minutesToDestination != null %}
+    <minutesToDestination>{{ currentVehicle.minutesToDestination }}</minutesToDestination>
+    {% endif %}
+    <timeToDestination>{{ currentVehicle.timeToDestination | default('', true) }}</timeToDestination>
+    {% endif %}
+  </vehicle>
+  {% endif %}
+</currentConditions>
+
+{% include "_includes/" + promptType + ".njk" %}
+</generationPrompt>
+
+</template>
