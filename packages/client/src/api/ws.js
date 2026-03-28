@@ -37,7 +37,9 @@ export function createRoomSocket(agentId, apiKey = "", { onEvent, onOpen, onClos
 
     ws.onclose = (event) => {
       onClose?.(event);
-      if (!closed) {
+      // Don't reconnect on intentional server rejection (4001=no auth, 4004=not registered)
+      const noRetry = closed || event.code === 4001 || event.code === 4004;
+      if (!noRetry) {
         reconnectTimer = setTimeout(() => {
           delay = Math.min(delay * 2, MAX_DELAY);
           connect();

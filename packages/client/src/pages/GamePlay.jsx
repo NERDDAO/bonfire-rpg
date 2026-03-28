@@ -72,9 +72,9 @@ const GamePlay = () => {
     if (currentRoom) setVisitedRooms((prev) => new Set([...prev, currentRoom]));
   }, [currentRoom]);
 
-  // WebSocket
+  // WebSocket — only connect when we have both agent + key + registered player
   useEffect(() => {
-    if (!agentId) return;
+    if (!agentId || !agentApiKey || !myPlayer) return;
     connect(agentId, agentApiKey, {
       onEvent: (event) => {
         handleRoomEvent(event);
