@@ -17,18 +17,21 @@ const path = require('path');
 const fs = require('fs');
 
 function register(scope) {
-  const { app, realtimeHub, modDir, registerModRoute, nunjucks } = scope;
+  const { app, realtimeHub, modDir, registerModRoute, nunjucks,
+    Player, Thing, Quest, Region, Location, LocationExit, Events,
+    players, things, regions, gameLocations, factions,
+    findActorByName, findThingByName, pushChatEntry,
+  } = scope;
 
   const configPath = path.join(modDir, 'config.json');
   const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
   if (!config.bonfire_id || !config.agent_id) {
-    console.log('[bonfires-gm] Not configured — set bonfire_id, agent_id, delve_api_key in config.json');
+    console.log('[bonfires-gm] Not configured — set bonfire_id, agent_id, delve_api_key');
     registerConfigRoutes();
     return;
   }
 
-  // --- SDK client (talks directly to Delve, no proxy) ---
   const sdk = new BonfiresClient({
     baseUrl: config.delve_base_url,
     apiKey: config.delve_api_key,
@@ -39,7 +42,7 @@ function register(scope) {
   const kg = new KGContext(sdk);
 
   // ========================================================
-  // STACK PUSH — After each /api/chat, push to Delve directly
+  // STACK PUSH — Rich context from ai_rpg state
   // ========================================================
 
   app.use('/api/chat', (req, res, next) => {
@@ -57,26 +60,58 @@ function register(scope) {
     if (!playerMessage) return;
 
     const player = scope.currentPlayer;
-    const location = player?.currentLocation;
-    const region = location?.region;
-    const playerName = config.player_name || player?.name || 'Player';
+    if (!player) return;
 
-    // Rich context for the stack
-    const userText = [
-      `[${playerName}]`,
-      region ? `Region: ${region.name}` : '',
-      location ? `Location: ${location.name}` : '',
-      `Action: ${playerMessage}`,
-    ].filter(Boolean).join(' | ');
+    const location = player.currentLocation;
+    const region = location ? scope.findRegionByLocationId?.(location.id) : null;
+
+    // Build rich context summary
+    const parts = [`[${config.player_name || player.name}]`];
+
+    if (region) parts.push(`Region: ${region.name}`);
+    if (location) parts.push(`Location: ${location.name}`);
+
+    // NPCs present
+    const npcIds = location?.npcIds || [];
+    if (npcIds.length > 0) {
+      const npcNames = npcIds
+        .map(id => players.get(id))
+        .filter(n => n && n.isNPC && !n.isDead)
+        .map(n => `${n.name} (${n.class || 'unknown'}, L${n.level})`)
+        .slice(0, 5);
+      if (npcNames.length) parts.push(`NPCs present: ${npcNames.join(', ')}`);
+    }
+
+    // Player state
+    parts.push(`HP: ${player.health}/${player.maxHealth}, Level: ${player.level}`);
+
+    // Active quests
+    const questList = player.quests || [];
+    const activeQuests = questList.filter(q => !q.isComplete).slice(0, 3);
+    if (activeQuests.length) {
+      parts.push(`Quests: ${activeQuests.map(q => q.name).join(', ')}`);
+    }
+
+    // Combat state
+    if (player.inCombat) parts.push('IN COMBAT');
+
+    // Key inventory
+    const inv = player.inventory || [];
+    if (inv.length > 0) {
+      const keyItems = inv.slice(0, 5).map(t => t.name);
+      parts.push(`Carrying: ${keyItems.join(', ')}`);
+    }
+
+    parts.push(`Action: ${playerMessage}`);
+    const userText = parts.join(' | ');
 
     // Get narrator response
     let aiResponse = '';
-    if (scope.chatHistory?.length > 0) {
-      for (let i = scope.chatHistory.length - 1; i >= 0; i--) {
-        if (scope.chatHistory[i]?.role === 'assistant') {
-          aiResponse = (scope.chatHistory[i].content || '').slice(0, 500);
-          break;
-        }
+    const history = scope.chatHistory || [];
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i]?.role === 'assistant') {
+        aiResponse = (history[i].content || '').slice(0, 500);
+        break;
       }
     }
 
@@ -99,13 +134,12 @@ function register(scope) {
 
   let wsServer = null;
   let gmCronInterval = null;
-  const connectedClients = new Map(); // agentId → ws
+  const connectedClients = new Map();
 
   if (config.is_host) {
     const port = config.host_port || 9998;
-
     wsServer = new WebSocket.Server({ port });
-    console.log(`[bonfires-gm] HOST MODE — WS server on :${port}`);
+    console.log(`[bonfires-gm] HOST — WS :${port}`);
 
     wsServer.on('connection', (ws) => {
       let clientAgentId = null;
@@ -113,20 +147,15 @@ function register(scope) {
       ws.on('message', (raw) => {
         try {
           const msg = JSON.parse(raw.toString());
-
           if (msg.type === 'register') {
             clientAgentId = msg.agent_id;
             connectedClients.set(clientAgentId, ws);
-            console.log(`[bonfires-gm] Client registered: ${clientAgentId}`);
+            console.log(`[bonfires-gm] Client: ${clientAgentId}`);
             ws.send(JSON.stringify({ type: 'registered', agent_id: clientAgentId }));
           }
-
           if (msg.type === 'action_summary' && clientAgentId) {
-            // Broadcast other players' actions to everyone else
             broadcastToOthers(clientAgentId, {
-              type: 'player_action',
-              agent_id: clientAgentId,
-              summary: msg.summary,
+              type: 'player_action', agent_id: clientAgentId, summary: msg.summary,
             });
           }
         } catch (err) {
@@ -135,10 +164,7 @@ function register(scope) {
       });
 
       ws.on('close', () => {
-        if (clientAgentId) {
-          connectedClients.delete(clientAgentId);
-          console.log(`[bonfires-gm] Client disconnected: ${clientAgentId}`);
-        }
+        if (clientAgentId) connectedClients.delete(clientAgentId);
       });
     });
 
@@ -147,63 +173,53 @@ function register(scope) {
       for (const [, ws] of connectedClients) {
         if (ws.readyState === WebSocket.OPEN) ws.send(json);
       }
-      // Also broadcast locally
-      handleWorldEvent(event);
+      handleWorldEvent(event); // Also apply locally
     }
 
-    function broadcastToOthers(excludeAgentId, event) {
+    function broadcastToOthers(excludeId, event) {
       const json = JSON.stringify(event);
-      for (const [agentId, ws] of connectedClients) {
-        if (agentId !== excludeAgentId && ws.readyState === WebSocket.OPEN) {
-          ws.send(json);
-        }
+      for (const [id, ws] of connectedClients) {
+        if (id !== excludeId && ws.readyState === WebSocket.OPEN) ws.send(json);
       }
     }
 
-    // GM Cron — process stacks and trigger GM decisions
+    // GM Cron
     gmCronInterval = setInterval(async () => {
       try {
-        // Process host agent's stack
         const result = await sdk.agents.stackProcess();
-        if (result?.episode_id || result?.data?.episode_id) {
-          const episodeId = result.episode_id || result.data?.episode_id;
-          console.log(`[bonfires-gm] Episode created: ${episodeId}`);
+        const episodeId = result?.episode_id || result?.data?.episode_id;
+        if (!episodeId) return;
 
-          // Get GM reaction via agent chat
-          const gmReaction = await sdk.agents.chat(
-            `You are the Game Master for a shared world. A new episode has been created (${episodeId}). ` +
-            `React to recent events and decide on world changes. Return JSON with: ` +
-            `{"reaction": "narrative", "world_events": ["event for all players"], ` +
-            `"npc_spawns": [{"name", "description", "locationName", "personality"}], ` +
-            `"quest_hooks": [{"name", "description", "objectives": []}]}`,
-            { graphMode: 'adaptive' }
-          );
+        console.log(`[bonfires-gm] Episode: ${episodeId}`);
 
-          const reply = gmReaction?.reply || '';
-          const parsed = safeJsonParse(reply);
+        const gmReaction = await sdk.agents.chat(
+          'You are the Game Master for a shared multiplayer world. A new episode of player activity was just recorded. ' +
+          'React to recent events and decide on world changes. Return strict JSON:\n' +
+          '{"reaction": "narrative text describing what happens in the world",\n' +
+          ' "world_events": ["public event description visible to all players"],\n' +
+          ' "npc_spawns": [{"name": "NPC Name", "description": "appearance and role", "class": "warrior/mage/rogue/etc", "race": "human/elf/etc", "level": 5, "personality": "traits", "locationName": "where they appear", "isHostile": false}],\n' +
+          ' "item_appearances": [{"name": "Item Name", "description": "what it is", "rarity": "common/uncommon/rare/legendary", "locationName": "where it appears", "slot": "weapon/armor/etc or null"}],\n' +
+          ' "quest_hooks": [{"name": "Quest Name", "description": "what to do", "giver": "NPC name", "objectives": ["objective 1", "objective 2"]}],\n' +
+          ' "faction_changes": [{"faction": "faction name", "event": "what happened"}]}',
+          { graphMode: 'adaptive' }
+        );
 
-          if (parsed) {
-            broadcastToAll({
-              type: 'gm_decision',
-              decision: parsed,
-              episode_id: episodeId,
-            });
-          } else if (reply) {
-            broadcastToAll({
-              type: 'gm_reaction',
-              reaction: reply,
-              episode_id: episodeId,
-            });
-          }
+        const reply = gmReaction?.reply || '';
+        const parsed = safeJsonParse(reply);
+
+        if (parsed) {
+          broadcastToAll({ type: 'gm_decision', decision: parsed, episode_id: episodeId });
+        } else if (reply) {
+          broadcastToAll({ type: 'gm_reaction', reaction: reply, episode_id: episodeId });
         }
       } catch (err) {
-        console.error('[bonfires-gm] GM cron failed:', err.message);
+        console.error('[bonfires-gm] GM cron:', err.message);
       }
     }, config.gm_cron_interval_ms || 60000);
   }
 
   // ========================================================
-  // CLIENT MODE — Connect WS to host
+  // CLIENT MODE
   // ========================================================
 
   let hostWs = null;
@@ -211,38 +227,22 @@ function register(scope) {
   if (!config.is_host && config.host_url) {
     function connectToHost() {
       hostWs = new WebSocket(config.host_url);
-
       hostWs.on('open', () => {
         console.log('[bonfires-gm] Connected to host');
-        hostWs.send(JSON.stringify({
-          type: 'register',
-          agent_id: config.agent_id,
-          wallet: config.wallet || '',
-        }));
+        hostWs.send(JSON.stringify({ type: 'register', agent_id: config.agent_id }));
       });
-
       hostWs.on('message', (raw) => {
-        try {
-          const event = JSON.parse(raw.toString());
-          handleWorldEvent(event);
-        } catch (err) {
-          console.error('[bonfires-gm] Host message parse error:', err.message);
-        }
+        try { handleWorldEvent(JSON.parse(raw.toString())); }
+        catch (err) { console.error('[bonfires-gm] Parse:', err.message); }
       });
-
-      hostWs.on('close', () => {
-        console.log('[bonfires-gm] Disconnected from host, reconnecting...');
-        setTimeout(connectToHost, 3000);
-      });
-
+      hostWs.on('close', () => setTimeout(connectToHost, 3000));
       hostWs.on('error', () => {});
     }
-
     connectToHost();
   }
 
   // ========================================================
-  // WORLD EVENT HANDLER — Applied in both modes
+  // WORLD EVENT HANDLER
   // ========================================================
 
   function handleWorldEvent(event) {
@@ -258,11 +258,11 @@ function register(scope) {
         break;
       case 'player_action':
         if (event.agent_id !== config.agent_id) {
-          injectNarration(`[Elsewhere] ${event.summary || 'Another adventurer acts...'}`);
+          injectNarration(`[Elsewhere] ${event.summary || 'Another adventurer acts.'}`);
         }
         break;
       case 'world_event':
-        injectNarration(event.text || 'The world changes...');
+        injectNarration(event.text || 'The world changes.');
         break;
     }
   }
@@ -278,57 +278,187 @@ function register(scope) {
   }
 
   // ========================================================
-  // APPLY GM DECISION — Create regions/NPCs/items natively
+  // APPLY GM DECISION — Create real ai_rpg objects
   // ========================================================
 
-  async function applyGmDecision(decision) {
+  function applyGmDecision(decision) {
     const reaction = decision.reaction || '';
-    if (reaction) {
-      injectNarration(`[Game Master] ${reaction}`);
-    }
+    if (reaction) injectNarration(`[Game Master] ${reaction}`);
 
-    // World events — narrative text for all players
-    const worldEvents = decision.world_events || [];
-    for (const text of worldEvents) {
+    // World events
+    for (const text of decision.world_events || []) {
       injectNarration(`[World] ${text}`);
     }
 
-    // NPC spawns — create via ai_rpg's scope if available
-    const npcSpawns = decision.npc_spawns || [];
-    for (const npc of npcSpawns) {
-      injectNarration(`[World] ${npc.name || 'A figure'} arrives: ${npc.description || ''}`);
-      // TODO: Use scope to create actual NPC via ai_rpg's Player class
-      // This requires deeper integration with ai_rpg's object system
+    // NPC spawns — create actual Player objects
+    for (const npcData of decision.npc_spawns || []) {
+      try {
+        spawnNpc(npcData);
+      } catch (err) {
+        console.error(`[bonfires-gm] NPC spawn failed (${npcData.name}):`, err.message);
+        injectNarration(`[World] ${npcData.name || 'A figure'} appears: ${npcData.description || ''}`);
+      }
     }
 
-    // Quest hooks — inject as narration for now
-    const questHooks = decision.quest_hooks || [];
-    for (const quest of questHooks) {
-      injectNarration(`[Quest Available] ${quest.name || 'New quest'}: ${quest.description || ''}`);
-      // TODO: Create actual Quest via scope
+    // Item appearances — create actual Thing objects
+    for (const itemData of decision.item_appearances || []) {
+      try {
+        spawnItem(itemData);
+      } catch (err) {
+        console.error(`[bonfires-gm] Item spawn failed (${itemData.name}):`, err.message);
+        injectNarration(`[World] ${itemData.name || 'Something'} appears.`);
+      }
     }
 
-    // Item appearances
-    const items = decision.item_appearances || [];
-    for (const item of items) {
-      injectNarration(`[World] ${item.name || 'Something'} appears: ${item.description || ''}`);
-      // TODO: Create actual Thing via scope
+    // Quest hooks — create actual Quest objects
+    for (const questData of decision.quest_hooks || []) {
+      try {
+        createQuest(questData);
+      } catch (err) {
+        console.error(`[bonfires-gm] Quest create failed (${questData.name}):`, err.message);
+        injectNarration(`[Quest] ${questData.name || 'New quest'}: ${questData.description || ''}`);
+      }
+    }
+
+    // Faction changes — narrate for now (faction system is complex)
+    for (const change of decision.faction_changes || []) {
+      injectNarration(`[Faction] ${change.faction}: ${change.event}`);
     }
   }
 
+  function spawnNpc(data) {
+    const name = data.name || 'Unknown';
+
+    // Check if NPC already exists
+    const existing = findActorByName?.(name);
+    if (existing) {
+      injectNarration(`[World] ${name} stirs and returns to the world.`);
+      return;
+    }
+
+    // Find location to place NPC
+    let location = null;
+    if (data.locationName) {
+      for (const [, loc] of gameLocations) {
+        if (loc.name?.toLowerCase().includes(data.locationName.toLowerCase())) {
+          location = loc;
+          break;
+        }
+      }
+    }
+    // Fallback to current player's location
+    if (!location && scope.currentPlayer?.currentLocation) {
+      location = scope.currentPlayer.currentLocation;
+    }
+
+    const npc = new Player({
+      name,
+      description: data.description || `${name} appears in the world.`,
+      shortDescription: data.shortDescription || '',
+      class: data.class || 'citizen',
+      race: data.race || 'human',
+      level: data.level || (scope.currentPlayer?.level || 1),
+      location: location?.id || null,
+      isNPC: true,
+      isHostile: Boolean(data.isHostile),
+      personalityType: data.personality || null,
+      personalityTraits: data.traits || null,
+      goals: Array.isArray(data.goals) ? data.goals : null,
+    });
+
+    // Set level properly
+    try { npc.setLevel(data.level || scope.currentPlayer?.level || 1); } catch {}
+
+    // Register in game state
+    players.set(npc.id, npc);
+
+    // Add to location
+    if (location && typeof location.addNpcId === 'function') {
+      location.addNpcId(npc.id);
+    }
+
+    const where = location ? ` in ${location.name}` : '';
+    injectNarration(`[World] ${name} appears${where}. ${data.description || ''}`);
+    console.log(`[bonfires-gm] Spawned NPC: ${name} (${npc.id})${where}`);
+  }
+
+  function spawnItem(data) {
+    const name = data.name || 'Unknown Item';
+
+    // Find location
+    let location = null;
+    if (data.locationName) {
+      for (const [, loc] of gameLocations) {
+        if (loc.name?.toLowerCase().includes(data.locationName.toLowerCase())) {
+          location = loc;
+          break;
+        }
+      }
+    }
+    if (!location && scope.currentPlayer?.currentLocation) {
+      location = scope.currentPlayer.currentLocation;
+    }
+
+    const thing = new Thing({
+      name,
+      description: data.description || `A ${data.rarity || 'mysterious'} item.`,
+      shortDescription: data.shortDescription || null,
+      thingType: 'item',
+      rarity: data.rarity || null,
+      slot: data.slot || null,
+      level: data.level || (scope.currentPlayer?.level || 1),
+    });
+
+    // Register in game state
+    things.set(thing.id, thing);
+
+    // Add to location
+    if (location) {
+      Events.addThingToLocation(thing, location);
+    }
+
+    const where = location ? ` in ${location.name}` : '';
+    injectNarration(`[World] ${name} materializes${where}. ${data.description || ''}`);
+    console.log(`[bonfires-gm] Spawned item: ${name} (${thing.id})${where}`);
+  }
+
+  function createQuest(data) {
+    const name = data.name || 'New Quest';
+    const player = scope.currentPlayer;
+    if (!player) return;
+
+    const objectives = (data.objectives || []).map((desc, i) => ({
+      id: `gm-quest-obj-${Date.now()}-${i}`,
+      description: desc,
+      isOptional: false,
+      isComplete: false,
+    }));
+
+    const quest = new Quest({
+      name,
+      description: data.description || '',
+      giver: data.giver || 'The World',
+      objectives,
+    });
+
+    player.addQuest(quest);
+    injectNarration(`[Quest Received] ${name}: ${data.description || ''}`);
+    console.log(`[bonfires-gm] Quest added: ${name}`);
+  }
+
   // ========================================================
-  // KG CONTEXT — Same as before, now using SDK directly
+  // KG CONTEXT — Same as before, SDK-direct
   // ========================================================
 
   setInterval(() => {
     kg.refresh(scope).catch(err =>
-      console.error('[bonfires-gm] KG refresh failed:', err.message)
+      console.error('[bonfires-gm] KG refresh:', err.message)
     );
   }, config.kg_refresh_interval_ms || 45000);
 
   kg.refresh(scope).catch(() => {});
 
-  // Template globals (same as before)
+  // Template globals
   nunjucks.addGlobal('getWorldEvents', (limit) => kg.getWorldEvents(limit));
   nunjucks.addGlobal('getRegionLore', () => kg.getRegionLore());
   nunjucks.addGlobal('getLocationFacts', (name) => kg.getLocationFacts(name));
@@ -336,10 +466,10 @@ function register(scope) {
   nunjucks.addGlobal('getFactionIntel', () => kg.getFactionIntel());
   nunjucks.addGlobal('getProphecies', () => kg.getProphecies());
   nunjucks.addGlobal('getWorldKnowledge', () => kg.formatForPrompt());
-  nunjucks.addGlobal('getRumors', () => { const e = kg.cache.get('rumors'); return e?.data || []; });
-  nunjucks.addGlobal('getDreamVisions', () => { const e = kg.cache.get('dreams'); return e?.data || []; });
-  nunjucks.addGlobal('getItemHistory', (n) => { const e = kg.cache.get(`item:${n}`); return e?.data || []; });
-  nunjucks.addGlobal('getReputation', (n) => { const e = kg.cache.get(`rep:${n}`); return e?.data || []; });
+  nunjucks.addGlobal('getRumors', () => (kg.cache.get('rumors')?.data || []));
+  nunjucks.addGlobal('getDreamVisions', () => (kg.cache.get('dreams')?.data || []));
+  nunjucks.addGlobal('getItemHistory', (n) => (kg.cache.get(`item:${n}`)?.data || []));
+  nunjucks.addGlobal('getReputation', (n) => (kg.cache.get(`rep:${n}`)?.data || []));
   nunjucks.addGlobal('getWorldWhispers', () => {
     const events = kg.getWorldEvents(3);
     if (!events.length) return [];
@@ -382,13 +512,12 @@ function register(scope) {
     registerModRoute('post', '/configure', (req, res) => {
       const updates = req.body || {};
       for (const key of Object.keys(updates)) {
-        if (config.hasOwnProperty(key)) config[key] = updates[key];
+        if (key in config) config[key] = updates[key];
       }
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
       res.json({ success: true, config, note: 'Restart ai_rpg to apply.' });
     });
   }
-
   registerConfigRoutes();
 
   registerModRoute('get', '/status', (req, res) => {
@@ -403,13 +532,9 @@ function register(scope) {
   });
 
   registerModRoute('get', '/kg', async (req, res) => {
-    const query = req.query.q || 'world state';
     try {
-      const result = await sdk.kg.search(query, { limit: parseInt(req.query.limit) || 10 });
-      res.json(result);
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
+      res.json(await sdk.kg.search(req.query.q || 'world', { limit: parseInt(req.query.limit) || 10 }));
+    } catch (err) { res.status(500).json({ error: err.message }); }
   });
 
   registerModRoute('get', '/kg/context', (req, res) => {
@@ -424,12 +549,8 @@ function register(scope) {
   });
 
   registerModRoute('post', '/process-now', async (req, res) => {
-    try {
-      const result = await sdk.agents.stackProcess();
-      res.json(result);
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
+    try { res.json(await sdk.agents.stackProcess()); }
+    catch (err) { res.status(500).json({ error: err.message }); }
   });
 
   const mode = config.is_host ? `HOST (:${config.host_port || 9998})` : `CLIENT → ${config.host_url}`;
