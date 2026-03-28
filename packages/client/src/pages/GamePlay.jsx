@@ -58,14 +58,14 @@ const GamePlay = () => {
     });
   }, [bonfireId]);
 
-  // When wallet connects, try to find/restore agent
+  // When wallet connects or game loads, try to find/restore agent
   useEffect(() => {
-    if (wallet && !agentId && bonfireId) {
+    if (wallet && !agentId && bonfireId && status) {
       findMyAgent(bonfireId).then((found) => {
         if (!found) restorePlayer(bonfireId);
       });
     }
-  }, [wallet, bonfireId]);
+  }, [wallet, bonfireId, status]);
 
   // Track visited rooms
   useEffect(() => {
@@ -182,9 +182,16 @@ const GamePlay = () => {
           {agentId ? (
             <PlayerInterface bonfireId={bonfireId} />
           ) : wallet ? (
-            <div className="text-center py-4 text-gray-500">
-              <p className="text-sm">No agent found for this world.</p>
-              <p className="text-xs mt-1 text-gray-600">Purchase an agent slot to start playing.</p>
+            <div className="text-center py-4 text-gray-500 space-y-2">
+              <p className="text-sm">Wallet connected. Looking for your agent...</p>
+              <button
+                type="button"
+                onClick={() => findMyAgent(bonfireId).then((id) => { if (!id) restorePlayer(bonfireId); })}
+                className="text-xs text-amber-500 hover:text-amber-400 underline"
+              >
+                Retry agent lookup
+              </button>
+              <p className="text-xs text-gray-600">{wallet.slice(0, 10)}... on bonfire {bonfireId.slice(0, 8)}...</p>
             </div>
           ) : (
             <div className="text-center py-4 text-gray-500">
@@ -195,8 +202,8 @@ const GamePlay = () => {
         </div>
 
         <div className="flex items-center gap-2 text-xs text-gray-600 px-1">
-          <div className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-gray-600"}`} />
-          {connected ? "Connected" : agentId ? "Disconnected" : "Spectating"}
+          <div className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : agentId && agentApiKey && myPlayer ? "bg-yellow-500" : "bg-gray-600"}`} />
+          {connected ? "Connected" : agentId && myPlayer ? "Reconnecting..." : wallet ? "Spectating (no agent)" : "Spectating"}
           {lastGmReaction && (
             <span className="ml-auto text-gray-500 truncate max-w-[200px] sm:max-w-xs">GM: {lastGmReaction.slice(0, 80)}</span>
           )}
