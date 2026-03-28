@@ -13,8 +13,8 @@ from fastapi.staticfiles import StaticFiles
 
 import game_config as config
 import http_client
+from broadcast_hub import BroadcastHub
 from game_store import GameStore
-from room_hub import RoomHub
 from timers import GmBatchTimerRunner, StackTimerRunner
 
 
@@ -47,7 +47,7 @@ def create_app(
     resolve_owner_wallet: Callable[[int], str] | None = None,
     stack_timer: StackTimerRunner | None = None,
     gm_timer: GmBatchTimerRunner | None = None,
-    room_hub: RoomHub | None = None,
+    hub: BroadcastHub | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -59,7 +59,7 @@ def create_app(
     _provided_resolve = resolve_owner_wallet
     _provided_stack_timer = stack_timer
     _provided_gm_timer = gm_timer
-    _provided_room_hub = room_hub
+    _provided_hub = hub
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -68,16 +68,14 @@ def create_app(
             yield
             return
 
-        _hub = RoomHub()
-        def _fire_world(event: dict) -> None:
+        _hub = BroadcastHub()
+
+        def _fire_world(event: dict) -> None:  # type: ignore[type-arg]
             """Schedule a broadcast to all connected players."""
-            loop = _hub._loop
-            if loop and not loop.is_closed():
-                loop.call_soon_threadsafe(loop.create_task, _hub.broadcast_all(event))
+            _hub.fire(event)
 
         _store = GameStore(
             storage_path=config.GAME_STORE_PATH,
-            on_room_event=_hub.fire_event,
             on_world_event=_fire_world,
         )
         _stack_timer = StackTimerRunner(
@@ -90,7 +88,7 @@ def create_app(
         _gm_timer.start()
         _ensure_htn_template()
         app.state.store = _store
-        app.state.room_hub = _hub
+        app.state.hub = _hub
         app.state.resolve_owner_wallet = _noop_resolver
         app.state.stack_timer = _stack_timer
         app.state.gm_timer = _gm_timer
@@ -103,14 +101,12 @@ def create_app(
     # When explicit dependencies are provided (e.g. tests), set state immediately
     # so the app works without triggering the lifespan context.
     if _provided_store is not None:
-        _hub_instance = _provided_room_hub or RoomHub()
+        _hub_instance = _provided_hub or BroadcastHub()
         app.state.store = _provided_store
-        app.state.room_hub = _hub_instance
+        app.state.hub = _hub_instance
         app.state.resolve_owner_wallet = _provided_resolve or _noop_resolver
         app.state.stack_timer = _provided_stack_timer
         app.state.gm_timer = _provided_gm_timer
-        if _provided_store.on_room_event is None:
-            _provided_store.on_room_event = _hub_instance.fire_event
 
     app.add_middleware(
         CORSMiddleware,

@@ -7,8 +7,8 @@
  */
 
 class KGContext {
-  constructor(gmClient) {
-    this.gm = gmClient;
+  constructor(sdk) {
+    this.sdk = sdk;
     this.cache = new Map();
     this.cacheTTL = 60_000; // 1 minute
     this.worldEvents = [];
@@ -57,7 +57,8 @@ class KGContext {
 
   async refreshWorldEvents() {
     this.worldEvents = await this.cached('worldEvents', async () => {
-      const episodes = await this.gm.getRecentEpisodes(15);
+      const data = await this.sdk.kg.getEpisodes({ limit: 15 });
+      const episodes = data?.episodes || [];
       return episodes.map(ep => ({
         summary: ep.summary || ep.name || '',
         timestamp: ep.created_at || ep.timestamp || '',
@@ -69,7 +70,7 @@ class KGContext {
   async refreshWorldLore(regionName) {
     if (!regionName) return;
     this.worldLore = await this.cached(`lore:${regionName}`, async () => {
-      const result = await this.gm.delveSearch(`lore history of ${regionName}`, 8);
+      const result = await this.sdk.kg.search(`lore history of ${regionName}`, 8);
       if (!result) return [];
       const entities = result.entities || result.nodes || [];
       return entities.map(e => ({
@@ -83,7 +84,7 @@ class KGContext {
   async refreshLocationContext(locationName, regionName) {
     if (!locationName) return;
     await this.cached(`location:${locationName}`, async () => {
-      const result = await this.gm.delveSearch(`${locationName} ${regionName}`, 5);
+      const result = await this.sdk.kg.search(`${locationName} ${regionName}`, 5);
       if (!result) return null;
       // Store as location-specific lore
       const facts = (result.edges || []).map(e => e.fact).filter(Boolean);
@@ -109,7 +110,7 @@ class KGContext {
       const npcName = npc.name || npcId;
 
       const memories = await this.cached(`npcMem:${npcName}`, async () => {
-        const result = await this.gm.delveSearch(`${npcName} interactions memories`, 6);
+        const result = await this.sdk.kg.search(`${npcName} interactions memories`, 6);
         if (!result) return [];
         const episodes = result.episodes || [];
         return episodes.map(ep => ({
@@ -124,7 +125,7 @@ class KGContext {
 
   async refreshFactionIntel() {
     this.factionIntel = await this.cached('factionIntel', async () => {
-      const result = await this.gm.delveSearch('faction conflict alliance war trade', 8);
+      const result = await this.sdk.kg.search('faction conflict alliance war trade', 8);
       if (!result) return [];
       const edges = result.edges || [];
       return edges.map(e => ({
@@ -138,7 +139,7 @@ class KGContext {
 
   async refreshProphecies() {
     this.prophecies = await this.cached('prophecies', async () => {
-      const result = await this.gm.delveSearch('prophecy destiny fate omen pattern recurring', 5);
+      const result = await this.sdk.kg.search('prophecy destiny fate omen pattern recurring', 5);
       if (!result) return [];
       const entities = result.entities || result.nodes || [];
       return entities.map(e => ({
@@ -184,7 +185,7 @@ class KGContext {
   // Search for item history across all players
   async getItemProvenance(itemName) {
     return this.cached(`item:${itemName}`, async () => {
-      const result = await this.gm.delveSearch(`${itemName} crafted found used traded`, 5);
+      const result = await this.sdk.kg.search(`${itemName} crafted found used traded`, 5);
       if (!result) return [];
       const episodes = result.episodes || [];
       return episodes.map(ep => ({
@@ -197,7 +198,7 @@ class KGContext {
   // Dream content — distant echoes from the world
   async getDreamContent() {
     return this.cached('dreams', async () => {
-      const result = await this.gm.delveSearch('strange vision dream omen whisper ancient', 5);
+      const result = await this.sdk.kg.search('strange vision dream omen whisper ancient', 5);
       if (!result) return [];
       const entities = result.entities || result.nodes || [];
       return entities.map(e => e.summary).filter(Boolean).slice(0, 3);
@@ -207,7 +208,7 @@ class KGContext {
   // Rumor mill — what travelers and merchants are saying
   async getRumors() {
     return this.cached('rumors', async () => {
-      const result = await this.gm.delveSearch('rumor news discovery battle victory defeat', 8);
+      const result = await this.sdk.kg.search('rumor news discovery battle victory defeat', 8);
       if (!result) return [];
       const episodes = result.episodes || [];
       return episodes
@@ -221,7 +222,7 @@ class KGContext {
   // Reputation echoes — what the world knows about a specific entity
   async getReputation(name) {
     return this.cached(`rep:${name}`, async () => {
-      const result = await this.gm.delveSearch(`${name} reputation known for`, 5);
+      const result = await this.sdk.kg.search(`${name} reputation known for`, 5);
       if (!result) return [];
       return (result.edges || []).map(e => e.fact).filter(Boolean);
     }) || [];

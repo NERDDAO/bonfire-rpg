@@ -58,43 +58,6 @@ class AttemptState:
 
 
 @dataclass
-class RoomState:
-    room_id: str
-    name: str
-    description: str = ""
-    connections: list[str] = field(default_factory=list)
-    graph_entity_uuid: str = ""
-    dataroom_id: str = ""
-    image_url: str = ""
-    latest_hyperblog_id: str = ""
-    latest_summary: str = ""
-
-
-@dataclass
-class NpcState:
-    npc_id: str
-    name: str
-    room_id: str
-    personality: str
-    description: str = ""
-    dialogue_style: str = ""
-    graph_entity_uuid: str = ""
-    inventory: list[str] = field(default_factory=list)
-    is_active: bool = True
-
-
-@dataclass
-class ObjectState:
-    object_id: str
-    name: str
-    description: str
-    obj_type: str = "artifact"
-    properties: dict[str, str] = field(default_factory=dict)
-    graph_entity_uuid: str = ""
-    is_consumed: bool = False
-
-
-@dataclass
 class GameState:
     bonfire_id: str
     owner_wallet: str
@@ -109,4 +72,3 @@ class GameState:
     world_state_summary: str = ""
     last_gm_reaction: str = ""
     last_episode_id: str = ""
-    rooms: list[dict[str, object]] = field(default_factory=list)

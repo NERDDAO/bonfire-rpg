@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import threading
 import time
 import urllib.parse
 from dataclasses import asdict
@@ -16,10 +15,9 @@ from fastapi.responses import JSONResponse
 import game_config as config
 import gm_engine
 import http_client
-import room_image
 import stack_processing
+from broadcast_hub import BroadcastHub
 from game_store import GameStore
-from room_hub import RoomHub
 from timers import GmBatchTimerRunner, StackTimerRunner
 
 router = APIRouter()
@@ -41,8 +39,8 @@ def get_stack_timer(request: Request) -> StackTimerRunner | None:
     return getattr(request.app.state, "stack_timer", None)
 
 
-def get_room_hub(request: Request) -> RoomHub:
-    return request.app.state.room_hub  # type: ignore[no-any-return]
+def get_hub(request: Request) -> BroadcastHub:
+    return request.app.state.hub  # type: ignore[no-any-return]
 
 
 def get_gm_timer(request: Request) -> GmBatchTimerRunner | None:
@@ -224,53 +222,6 @@ def _normalize_graph_edges(raw_edges: object) -> list[dict[str, object]]:
 # ---------------------------------------------------------------------------
 
 
-def _fetch_room_graph_context(bonfire_id: str, entity_uuid: str) -> str:
-    url = f"{config.DELVE_BASE_URL}/knowledge_graph/expand/entity"
-    body: dict[str, object] = {"entity_uuid": entity_uuid, "bonfire_id": bonfire_id, "limit": 30}
-    status, payload = http_client._json_request("POST", url, body)
-    if status != 200 or not isinstance(payload, dict):
-        return ""
-    nodes = payload.get("nodes") or payload.get("entities") or []
-    if not isinstance(nodes, list):
-        return ""
-    summaries: list[str] = []
-    for n in nodes[:15]:
-        if not isinstance(n, dict):
-            continue
-        name = str(n.get("name", ""))
-        summary = str(n.get("summary", ""))
-        if name:
-            summaries.append(f"- {name}: {summary[:150]}" if summary else f"- {name}")
-    return "\n".join(summaries) if summaries else ""
-
-
-def _try_pin_room_graph_entity(store: GameStore, bonfire_id: str, room_id: str) -> None:
-    room = store.get_room_by_id(bonfire_id, room_id)
-    if not room:
-        return
-    if room.get("graph_entity_uuid"):
-        return
-    room_name = str(room.get("name", ""))
-    if not room_name:
-        return
-    url = f"{config.DELVE_BASE_URL}/delve"
-    body: dict[str, object] = {"query": f"Room: {room_name}", "bonfire_id": bonfire_id, "limit": 5}
-    status, payload = http_client._json_request("POST", url, body)
-    if status != 200 or not isinstance(payload, dict):
-        return
-    entities = payload.get("entities") or payload.get("nodes") or []
-    if not isinstance(entities, list):
-        return
-    for ent in entities:
-        if not isinstance(ent, dict):
-            continue
-        ent_name = str(ent.get("name", "")).lower()
-        ent_uuid = str(ent.get("uuid", "")).strip()
-        if ent_uuid and room_name.lower() in ent_name:
-            store.set_room_graph_entity(bonfire_id, room_id, ent_uuid)
-            return
-
-
 def _build_agent_chat_context(store: GameStore, agent_id: str) -> dict[str, object]:
     player = store.get_player(agent_id)
     if not player:
@@ -365,8 +316,8 @@ def _build_game_context_preamble(store: GameStore, agent_id: str) -> str:
         "You are the inner voice of the player's character — a narrator who speaks as their "
         "internal monologue. Describe what they see, feel, and sense in the world around them. "
         'Guide them through the adventure with vivid, second-person narration ("You notice...", '
-        '"A chill runs down your spine..."). React to the room, other players present, and the '
-        "world state. When the player asks questions or states actions, narrate the outcome as "
+        '"A chill runs down your spine..."). React to the world state and other players present. '
+        "When the player asks questions or states actions, narrate the outcome as "
         "an unfolding story. Keep responses concise (2-4 sentences) and atmospheric. Never break "
         "character. Never reference game mechanics directly."
     ]
@@ -384,66 +335,6 @@ def _build_game_context_preamble(store: GameStore, agent_id: str) -> str:
     gm_reaction = str(game.get("last_gm_reaction", "")).strip()
     if gm_reaction:
         parts.append(f"[LAST GM REACTION]\n{gm_reaction}")
-
-    player = store.get_player(agent_id)
-    if player and player.current_room:
-        room = store.get_room_by_id(player.bonfire_id, player.current_room)
-        if room:
-            room_name = str(room.get("name", "Unknown"))
-            room_desc = str(room.get("description", ""))
-            conns = room.get("connections", [])
-            exits = ", ".join(str(c) for c in conns) if isinstance(conns, list) and conns else "none"
-            parts.append(
-                f"[CURRENT ROOM]\nName: {room_name}\nDescription: {room_desc}\nExits: {exits}"
-            )
-        room_msgs = store.get_room_messages(player.current_room, limit=20)
-        if room_msgs:
-            lines: list[str] = []
-            for msg in room_msgs:
-                if not isinstance(msg, dict):
-                    continue
-                role = str(msg.get("role", ""))
-                sender = str(msg.get("sender_agent_id", ""))
-                text = str(msg.get("text", ""))
-                if sender == agent_id:
-                    continue
-                label = f"[{role}:{sender[:8]}]" if sender else f"[{role}]"
-                lines.append(f"{label} {text[:200]}")
-            if lines:
-                parts.append("[ROOM ACTIVITY]\n" + "\n".join(lines[-10:]))
-
-        room_graph_uuid = str(room.get("graph_entity_uuid", "")) if room else ""
-        if room_graph_uuid and player:
-            graph_context = _fetch_room_graph_context(player.bonfire_id, room_graph_uuid)
-            if graph_context:
-                parts.append(f"[ROOM KNOWLEDGE]\n{graph_context}")
-
-    if player:
-        bonfire_id = player.bonfire_id
-        current_room = player.current_room
-        if current_room:
-            room_npcs = store.get_npcs_in_room(bonfire_id, current_room)
-            if room_npcs:
-                npc_lines = []
-                for npc in room_npcs:
-                    line = f"- {npc.name}: {npc.description}" if npc.description else f"- {npc.name}"
-                    if npc.personality:
-                        line += f" ({npc.personality})"
-                    npc_lines.append(line)
-                parts.append("[ROOM NPCS]\n" + "\n".join(npc_lines))
-
-            room_items = store.get_objects_in_room(bonfire_id, current_room)
-            if room_items:
-                item_lines = [f"- {o.name} [{o.obj_type}]: {o.description}" for o in room_items]
-                parts.append("[ROOM ITEMS]\n" + "\n".join(item_lines))
-
-        inv_items = store.get_player_inventory(bonfire_id, agent_id)
-        if inv_items:
-            inv_lines = [
-                f"- {it['name']} [{it.get('obj_type', 'artifact')}]: {it['description']}"
-                for it in inv_items
-            ]
-            parts.append("[YOUR INVENTORY]\n" + "\n".join(inv_lines))
 
     _quests_raw2 = ctx.get("active_quests")
     quests2: list[object] = _quests_raw2 if isinstance(_quests_raw2, list) else []
@@ -925,6 +816,14 @@ def _trigger_gm_reaction_for_agent(
             amount=extension,
             reason="gm_episode_extension",
         )
+
+    # Broadcast GM decision to all connected clients
+    store.emit_world_event({
+        "type": "gm_decision",
+        "decision": gm_decision,
+        "bonfire_id": player.bonfire_id,
+    })
+
     response: dict[str, object] = {
         "agent_id": agent_id,
         "episode_id": chosen_episode_id,
@@ -1079,50 +978,6 @@ def route_timer_status(
             },
         }
     )
-
-
-@router.get("/game/room/chat")
-def route_room_chat(
-    room_id: str = Query(...),
-    limit: int = Query(default=50, ge=1, le=200),
-    store: GameStore = Depends(get_store),
-) -> JSONResponse:
-    messages = store.get_room_messages(room_id, limit=limit)
-    return JSONResponse({"room_id": room_id, "messages": messages})
-
-
-@router.get("/game/room/npcs")
-def route_room_npcs(
-    bonfire_id: str = Query(...),
-    room_id: str = Query(...),
-    store: GameStore = Depends(get_store),
-) -> JSONResponse:
-    npcs = store.get_npcs_in_room(bonfire_id, room_id)
-    return JSONResponse({"npcs": [asdict(n) for n in npcs]})
-
-
-@router.get("/game/inventory")
-def route_inventory(
-    agent_id: str = Query(...),
-    bonfire_id: str = Query(default=""),
-    store: GameStore = Depends(get_store),
-) -> JSONResponse:
-    effective_bonfire_id = bonfire_id
-    if not effective_bonfire_id:
-        player = store.get_player(agent_id)
-        effective_bonfire_id = player.bonfire_id if player else ""
-    if not effective_bonfire_id:
-        return JSONResponse(status_code=404, content={"error": "player_not_found"})
-    items = store.get_player_inventory(effective_bonfire_id, agent_id)
-    return JSONResponse({"agent_id": agent_id, "items": items})
-
-
-@router.get("/game/map")
-def route_map(
-    bonfire_id: str = Query(...),
-    store: GameStore = Depends(get_store),
-) -> JSONResponse:
-    return JSONResponse(store.get_room_map(bonfire_id))
 
 
 @router.get("/game/graph")
@@ -1371,7 +1226,6 @@ def route_register_purchase(
         purchase_tx_hash=purchase_tx_hash,
         episodes_purchased=episodes_purchased,
     )
-    store.place_player_in_starting_room(agent_id)
     return JSONResponse(
         {
             "agent_id": player.agent_id,
@@ -1413,7 +1267,6 @@ def route_register_selected(
         erc8004_bonfire_id=erc8004_bonfire_id,
         episodes_purchased=episodes_purchased,
     )
-    store.place_player_in_starting_room(agent_id)
     return JSONResponse(
         {
             "agent_id": player.agent_id,
@@ -1463,7 +1316,6 @@ def route_create_game(
         gm_agent_id=gm_agent_id,
         initial_episode_summary=str(seed.get("episode_summary", "")),
     )
-    store.ensure_starting_room(bonfire_id)
     response: dict[str, object] = {
         "game_id": game.game_id,
         "bonfire_id": game.bonfire_id,
@@ -1543,14 +1395,6 @@ def route_agent_complete(
     )
 
     now_iso = datetime.now(UTC).isoformat()
-    room_prefix = ""
-    if player.current_room:
-        room_data = store.get_room_by_id(player.bonfire_id, player.current_room)
-        if room_data:
-            room_prefix = f"[Room: {room_data.get('name', 'Unknown')}] "
-
-    stack_text_user = f"{room_prefix}{message}" if room_prefix else message
-    stack_text_agent = f"{room_prefix}{assistant_reply}" if room_prefix else assistant_reply
 
     stack_url = f"{config.DELVE_BASE_URL}/agents/{agent_id}/stack/add"
     stack_status, stack_payload = http_client._agent_json_request(
@@ -1559,9 +1403,9 @@ def route_agent_complete(
         agent_api_key,
         body={
             "messages": [
-                {"text": stack_text_user, "userId": user_id, "chatId": chat_id, "timestamp": now_iso},
+                {"text": message, "userId": user_id, "chatId": chat_id, "timestamp": now_iso},
                 {
-                    "text": stack_text_agent,
+                    "text": assistant_reply,
                     "userId": f"agent:{agent_id}",
                     "chatId": chat_id,
                     "timestamp": now_iso,
@@ -1576,29 +1420,12 @@ def route_agent_complete(
             content={"error": "stack add failed", "chat": chat_payload, "stack": stack_payload},
         )
 
-    if player.current_room:
-        store.append_room_message(
-            room_id=player.current_room,
-            sender_agent_id=agent_id,
-            sender_wallet=player.wallet,
-            role="user",
-            text=message,
-        )
-        store.append_room_message(
-            room_id=player.current_room,
-            sender_agent_id=agent_id,
-            sender_wallet=player.wallet,
-            role="agent",
-            text=assistant_reply,
-        )
-
     response_body: dict[str, object] = {
         "agent_id": agent_id,
         "chat": chat_payload,
         "stack": stack_payload,
         "api_key_source": api_key_source,
         "graph_mode": graph_mode,
-        "room_id": player.current_room,
         "note": "Message pair appended to stack; Game Master context updates only after episode creation via stack processing.",
     }
 
@@ -1661,7 +1488,6 @@ def route_end_turn(
         return JSONResponse(status_code=404, content={"error": "agent is not registered in game"})
 
     bonfire_id = player.bonfire_id
-    gm_agent_id = store.get_owner_agent_id(bonfire_id)
 
     url = f"{config.DELVE_BASE_URL}/agents/{agent_id}/stack/process"
     pre_uuids = _get_agent_episode_uuids(agent_id)
@@ -1699,115 +1525,9 @@ def route_end_turn(
     )
     store.update_agent_context_from_episode(agent_id, episode_id, episode_summary)
 
-    if player.current_room:
-        _try_pin_room_graph_entity(store, bonfire_id, player.current_room)
-
-    gm_decision: dict[str, object] = {}
-    if gm_agent_id and config.DELVE_API_KEY and gm_agent_id != agent_id:
-        game = store.get_game(bonfire_id)
-        room_map = store.get_room_map(bonfire_id)
-        room_summary = gm_engine._build_room_structured_summary(store, bonfire_id)
-        game_context: dict[str, object] = {
-            "bonfire_id": bonfire_id,
-            "game_prompt": game.game_prompt if game else "",
-            "world_state_summary": game.world_state_summary if game else "",
-            "last_gm_reaction": game.last_gm_reaction if game else "",
-            "rooms": room_map.get("rooms", []),
-            "player_positions": room_map.get("players", []),
-        }
-        gm_url = f"{config.DELVE_BASE_URL}/agents/{gm_agent_id}/chat"
-        gm_status, gm_payload = http_client._agent_json_request(
-            "POST",
-            gm_url,
-            config.DELVE_API_KEY,
-            body={
-                "message": (
-                    "You are the Game Master for a shared world. Read the episode and return strict JSON "
-                    '{"extension_awarded": int, "reaction": string, "world_state_update": string, '
-                    '"room_movements": [{"agent_id": string, "to_room": string}], '
-                    '"new_rooms": [{"name": string, "description": string, "connections": [string]}], '
-                    '"room_updates": [{"room_id": string, "description": string}], '
-                    '"new_npcs": [{"name": string, "room_id": string, "personality": string, "description": string}], '
-                    '"npc_updates": [{"npc_id": string, "room_id": string}], '
-                    '"new_objects": [{"name": string, "description": string, "obj_type": string, '
-                    '"location_type": "room"|"npc"|"player", "location_id": string, "properties": {}}], '
-                    '"object_grants": [{"object_id": string, "to_agent_id": string}]}. '
-                    "extension_awarded must be between 0 and 3. "
-                    "room_movements moves players between known rooms when narratively appropriate. "
-                    "new_rooms creates new areas for exploration (only when the story demands it). "
-                    "room_updates changes descriptions of existing rooms as the world evolves. "
-                    "new_npcs spawns NPCs in rooms. npc_updates moves NPCs. "
-                    "new_objects creates items. object_grants gives items to players. "
-                    "Use room names from the room list for movements. "
-                    f"Episode id: {episode_id}. Episode summary: {episode_summary}.\n"
-                    f"Room activity:\n{room_summary}\n"
-                    f"Rooms: {json.dumps(room_map.get('rooms', []))}. "
-                    f"Player positions: {json.dumps(room_map.get('players', []))}"
-                ),
-                "chat_history": [],
-                "graph_mode": "adaptive",
-                "context": {
-                    "role": "game_master",
-                    "bonfire_id": bonfire_id,
-                    "episode_id": episode_id,
-                    "episode": episode_payload or {"summary": episode_summary},
-                    "game": game_context,
-                },
-            },
-        )
-        if gm_status == 200:
-            reply = gm_payload.get("reply")
-            if isinstance(reply, str):
-                parsed = _safe_json_object(reply)
-                if parsed:
-                    ext_obj = parsed.get("extension_awarded", 0)
-                    extension = ext_obj if isinstance(ext_obj, int) else 0
-                    extension = max(0, min(extension, 3))
-                    gm_decision = {
-                        "extension_awarded": extension,
-                        "reaction": str(parsed.get("reaction", "GM reviewed the episode.")).strip(),
-                        "world_state_update": str(parsed.get("world_state_update", "")).strip(),
-                        "room_movements": parsed.get("room_movements", []),
-                        "new_rooms": parsed.get("new_rooms", []),
-                        "room_updates": parsed.get("room_updates", []),
-                        "new_npcs": parsed.get("new_npcs", []),
-                        "npc_updates": parsed.get("npc_updates", []),
-                        "new_objects": parsed.get("new_objects", []),
-                        "object_grants": parsed.get("object_grants", []),
-                        "source": "gm_llm",
-                    }
-
-        gm_reaction_text = str(gm_decision.get("reaction", "")).strip()
-        gm_world_update = str(gm_decision.get("world_state_update", "")).strip()
-        if gm_reaction_text or gm_world_update:
-            now_iso = datetime.now(UTC).isoformat()
-            stack_add_url = f"{config.DELVE_BASE_URL}/agents/{gm_agent_id}/stack/add"
-            http_client._agent_json_request(
-                "POST",
-                stack_add_url,
-                config.DELVE_API_KEY,
-                body={
-                    "messages": [
-                        {
-                            "text": f"[Player {agent_id} episode] {episode_summary}",
-                            "userId": f"player:{agent_id}",
-                            "chatId": f"gm-{bonfire_id}",
-                            "timestamp": now_iso,
-                        },
-                        {
-                            "text": f"GM reaction: {gm_reaction_text}\nWorld update: {gm_world_update}",
-                            "userId": f"gm:{gm_agent_id}",
-                            "chatId": f"gm-{bonfire_id}",
-                            "timestamp": now_iso,
-                        },
-                    ],
-                    "is_paired": True,
-                },
-            )
-    else:
-        gm_decision = gm_engine._make_gm_decision(
-            store, agent_id, episode_summary, episode_id, episode_payload
-        )
+    gm_decision = gm_engine._make_gm_decision(
+        store, agent_id, episode_summary, episode_id, episode_payload
+    )
 
     reaction = str(gm_decision.get("reaction", "")).strip()
     world_update = str(gm_decision.get("world_state_update", "")).strip()
@@ -1828,14 +1548,10 @@ def route_end_turn(
         recharge = store.recharge_agent(bonfire_id, agent_id, extension_awarded, "gm_episode_extension")
         response["episode_extension"] = {"extension_awarded": extension_awarded, "recharge": recharge}
 
-    room_changes = gm_engine._apply_gm_room_changes(store, bonfire_id, gm_decision)
-    npc_obj_changes = gm_engine._apply_gm_npc_and_object_changes(store, bonfire_id, gm_decision)
+    # Broadcast GM decision to all connected clients
+    store.emit_world_event({"type": "gm_decision", "decision": gm_decision, "bonfire_id": bonfire_id})
 
     response["gm_decision"] = gm_decision
-    response["room_changes"] = room_changes
-    response["npc_object_changes"] = npc_obj_changes
-    room_map = store.get_room_map(bonfire_id)
-    response["room_map"] = room_map
 
     game_obj = store.get_game(bonfire_id)
     if game_obj:
@@ -1845,166 +1561,7 @@ def route_end_turn(
             "last_episode_id": game_obj.last_episode_id,
         }
 
-    gm_summary = str(gm_decision.get("reaction", ""))
-    rooms_list = room_map.get("rooms", [])
-    if isinstance(rooms_list, list):
-        for r in rooms_list:
-            rid = str(r.get("room_id", "")) if isinstance(r, dict) else ""
-            if rid:
-                store.emit_room_event(rid, {
-                    "type": "gm_decision",
-                    "summary": gm_summary,
-                    "room_changes": room_changes,
-                    "npc_changes": npc_obj_changes,
-                })
-
     return JSONResponse(response)
-
-
-@router.post("/game/npc/interact")
-def route_npc_interact(
-    body: dict[str, object] = Body(default={}),
-    store: GameStore = Depends(get_store),
-) -> JSONResponse:
-    agent_id = _required_string(body, "agent_id")
-    npc_id = _required_string(body, "npc_id")
-    message = _required_string(body, "message")
-
-    player = store.get_player(agent_id)
-    if not player:
-        return JSONResponse(status_code=404, content={"error": "agent is not registered in game"})
-
-    bonfire_id = player.bonfire_id
-    npc = store.get_npc(bonfire_id, npc_id)
-    if not npc:
-        return JSONResponse(status_code=404, content={"error": "npc_not_found"})
-
-    game = store.games_by_bonfire.get(bonfire_id)
-    gm_agent_id = game.gm_agent_id if game else None
-    if not gm_agent_id:
-        return JSONResponse(status_code=503, content={"error": "no_gm_agent"})
-
-    npc_inventory_text = ""
-    if npc.inventory:
-        npc_items = []
-        for oid in npc.inventory:
-            obj = store.get_object(bonfire_id, oid)
-            if obj and not obj.is_consumed:
-                npc_items.append(f"- {obj.name}: {obj.description}")
-        if npc_items:
-            npc_inventory_text = "\nItems you carry:\n" + "\n".join(npc_items)
-
-    player_inv_text = ""
-    player_items = store.get_player_inventory(bonfire_id, agent_id)
-    if player_items:
-        player_inv_text = "\nThe adventurer carries:\n" + "\n".join(
-            f"- {it['name']}: {it['description']}" for it in player_items
-        )
-
-    room = store.get_room_by_id(bonfire_id, npc.room_id)
-    room_name = room.get("name", "Unknown") if room else "Unknown"
-
-    graph_context = ""
-    if npc.graph_entity_uuid:
-        graph_context = _fetch_room_graph_context(bonfire_id, npc.graph_entity_uuid)
-        if graph_context:
-            graph_context = f"\n[YOUR KNOWLEDGE]\n{graph_context}"
-
-    npc_prompt = (
-        f"You are {npc.name}. {npc.personality}\n"
-        f"Dialogue style: {npc.dialogue_style or 'natural'}\n"
-        f"You are in: {room_name}\n"
-        f"Description: {npc.description}{npc_inventory_text}{player_inv_text}{graph_context}\n\n"
-        f"Stay in character. Respond as {npc.name} would. "
-        f"Do NOT break character or reveal you are an AI."
-    )
-
-    augmented_message = f"{npc_prompt}\n\n---\n\nThe adventurer says: {message}"
-
-    chat_url = f"{config.DELVE_BASE_URL}/agents/{gm_agent_id}/chat"
-    chat_status, chat_payload = http_client._agent_json_request(
-        "POST",
-        chat_url,
-        config.DELVE_API_KEY,
-        body={"message": augmented_message, "chat_history": [], "graph_mode": "static", "context": {"role": "npc", "npc_id": npc.npc_id, "npc_name": npc.name}},
-    )
-    if chat_status != 200:
-        return JSONResponse(status_code=chat_status, content=chat_payload)
-
-    reply = ""
-    if isinstance(chat_payload, dict):
-        reply = str(chat_payload.get("reply") or chat_payload.get("message") or "")
-
-    if player.current_room:
-        store.append_room_message(player.current_room, npc_id, "", "npc", f"[{npc.name}] {reply}")
-
-    return JSONResponse(
-        {"npc_id": npc_id, "npc_name": npc.name, "reply": reply, "room_id": npc.room_id}
-    )
-
-
-@router.post("/game/move")
-def route_move(
-    body: dict[str, object] = Body(default={}),
-    store: GameStore = Depends(get_store),
-    room_hub: RoomHub = Depends(get_room_hub),
-) -> JSONResponse:
-    agent_id = _required_string(body, "agent_id")
-    room_id = _required_string(body, "room_id")
-    player = store.get_player(agent_id)
-    if not player:
-        return JSONResponse(status_code=404, content={"error": "agent not registered"})
-    # Validate connection — player can only move to connected rooms
-    current = store.get_room_by_id(player.bonfire_id, player.current_room)
-    if current:
-        conns = current.get("connections", [])
-        if room_id not in conns:
-            return JSONResponse(status_code=400, content={"error": "room not connected"})
-    if not store.move_player(agent_id, room_id):
-        return JSONResponse(status_code=400, content={"error": "move failed"})
-    # Subscribe to new room's WS channel
-    import asyncio
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(room_hub.subscribe(agent_id, room_id))
-    except RuntimeError:
-        pass
-    new_room = store.get_room_by_id(player.bonfire_id, room_id)
-    return JSONResponse({
-        "success": True,
-        "room_id": room_id,
-        "room_name": new_room.get("name", "") if new_room else "",
-        "connections": new_room.get("connections", []) if new_room else [],
-    })
-
-
-@router.post("/game/inventory/use")
-def route_inventory_use(
-    body: dict[str, object] = Body(default={}),
-    store: GameStore = Depends(get_store),
-) -> JSONResponse:
-    agent_id = _required_string(body, "agent_id")
-    object_id = _required_string(body, "object_id")
-
-    player = store.get_player(agent_id)
-    if not player:
-        return JSONResponse(status_code=404, content={"error": "agent is not registered in game"})
-
-    result = store.use_object(player.bonfire_id, agent_id, object_id)
-    if not result.get("success"):
-        return JSONResponse(status_code=400, content=result)
-
-    effects_raw = result.get("effects", [])
-    effects = effects_raw if isinstance(effects_raw, list) else []
-    if effects and player.current_room:
-        store.append_room_message(
-            player.current_room,
-            agent_id,
-            player.wallet,
-            "system",
-            f"Used item: {', '.join(str(e) for e in effects)}",
-        )
-    return JSONResponse(result)
 
 
 @router.post("/game/agents/stack/add")
@@ -2032,21 +1589,6 @@ def route_stack_add(
         return JSONResponse(status_code=400, content={"error": "message or messages required"})
 
     status, payload = http_client._agent_json_request("POST", url, config.DELVE_API_KEY, stack_body)
-
-    # Also append to room chat for visibility
-    if status == 200 and player.current_room:
-        text = ""
-        if body.get("message"):
-            msg = body["message"]
-            text = msg.get("text", str(msg)) if isinstance(msg, dict) else str(msg)
-        elif body.get("messages"):
-            msgs = body["messages"]
-            if isinstance(msgs, list) and msgs:
-                first = msgs[0]
-                text = first.get("text", "") if isinstance(first, dict) else str(first)
-        if text:
-            store.append_room_message(player.current_room, agent_id, "", "player", text[:500])
-
     return JSONResponse(status_code=status, content=payload)
 
 
@@ -2128,6 +1670,12 @@ def route_process_stack(
                     "recharge": recharge_result,
                 }
             response_payload["gm_decision"] = gm_decision
+
+            # Broadcast GM decision to all connected clients
+            if player:
+                store.emit_world_event({
+                    "type": "gm_decision", "decision": gm_decision, "bonfire_id": player.bonfire_id,
+                })
         else:
             response_payload["episode_pending"] = True
             response_payload["note"] = (
@@ -2302,10 +1850,10 @@ def route_backfill_world_state(
             player = store.get_player(aid)
             if player and player.bonfire_id == bonfire_id:
                 uuids = _get_agent_episode_uuids(aid)
-                for uuid in reversed(uuids):
-                    candidate = stack_processing._fetch_episode_payload(bonfire_id, uuid)
+                for uuid_str in reversed(uuids):
+                    candidate = stack_processing._fetch_episode_payload(bonfire_id, uuid_str)
                     if candidate:
-                        episode_id = uuid
+                        episode_id = uuid_str
                         episode_payload = candidate
                         break
                 if episode_payload:
@@ -2454,18 +2002,6 @@ def route_recharge_agent(
     return JSONResponse(out)
 
 
-@router.post("/game/map/init")
-def route_map_init(
-    body: dict[str, object] = Body(default={}),
-    store: GameStore = Depends(get_store),
-) -> JSONResponse:
-    bonfire_id = _required_string(body, "bonfire_id")
-    room_id = store.ensure_starting_room(bonfire_id)
-    if not room_id:
-        return JSONResponse(status_code=404, content={"error": "game not found for bonfire"})
-    return JSONResponse(store.get_room_map(bonfire_id))
-
-
 @router.post("/game/entity/expand")
 def route_entity_expand(body: dict[str, object] = Body(default={})) -> JSONResponse:
     entity_uuid = _required_string(body, "entity_uuid")
@@ -2607,7 +2143,7 @@ def route_generate_quests(
 
 
 # ---------------------------------------------------------------------------
-# Room image / HyperBlog pipeline
+# HTN template setup
 # ---------------------------------------------------------------------------
 
 ROOM_HTN_TEMPLATE_BODY = config.ROOM_HTN_TEMPLATE_BODY
@@ -2637,135 +2173,8 @@ def route_setup_htn_template() -> JSONResponse:
     })
 
 
-@router.post("/game/room/refresh-image")
-def route_refresh_room_image(
-    body: dict[str, object] = Body(default={}),
-    store: GameStore = Depends(get_store),
-) -> JSONResponse:
-    """Re-generate image + summary for a room via internal HyperBlog (no payment)."""
-    bonfire_id = _required_string(body, "bonfire_id")
-    room_id = _required_string(body, "room_id")
-    user_query = str(body.get("user_query", "Describe the current state of this location."))
-
-    room = store.get_room_by_id(bonfire_id, room_id)
-    if not room:
-        return JSONResponse(status_code=404, content={"error": "room not found"})
-
-    def _bg() -> None:
-        hb_id = room_image.generate_room_hyperblog(store, bonfire_id, room_id, user_query)
-        if hb_id:
-            room_image.poll_and_update_room_image(store, bonfire_id, room_id, hb_id)
-
-    threading.Thread(target=_bg, daemon=True).start()
-    return JSONResponse({"status": "generating", "room_id": room_id})
-
-
-@router.post("/game/room/journal")
-def route_room_journal(
-    body: dict[str, object] = Body(default={}),
-    store: GameStore = Depends(get_store),
-    agent_api_key_info: tuple[str, str] = Depends(_get_agent_api_key),
-) -> JSONResponse:
-    """Player writes a journal entry for a room (X402 paid HyperBlog)."""
-    bonfire_id = _required_string(body, "bonfire_id")
-    room_id = _required_string(body, "room_id")
-    agent_id = _required_string(body, "agent_id")
-    user_query = _required_string(body, "user_query")
-    payment_header = str(body.get("payment_header", ""))
-
-    player = store.get_player(agent_id)
-    if not player:
-        return JSONResponse(status_code=404, content={"error": "agent not registered"})
-    if player.current_room != room_id:
-        return JSONResponse(status_code=400, content={"error": "agent is not in this room"})
-
-    room = store.get_room_by_id(bonfire_id, room_id)
-    if not room:
-        return JSONResponse(status_code=404, content={"error": "room not found"})
-
-    dataroom_id = str(room.get("dataroom_id", ""))
-    if not dataroom_id:
-        dataroom_id = room_image.create_room_dataroom(store, bonfire_id, room_id)
-        if not dataroom_id:
-            return JSONResponse(status_code=503, content={"error": "failed to create DataRoom"})
-
-    if payment_header:
-        purchase_url = f"{config.DELVE_BASE_URL}/datarooms/hyperblogs/purchase"
-        purchase_body: dict[str, object] = {
-            "payment_header": payment_header,
-            "dataroom_id": dataroom_id,
-            "user_query": user_query,
-            "blog_length": "short",
-            "generation_mode": "card",
-            "is_public": True,
-        }
-        p_status, p_payload = http_client._json_request("POST", purchase_url, purchase_body)
-        if p_status not in (200, 201) or not isinstance(p_payload, dict):
-            return JSONResponse(status_code=p_status or 502, content={
-                "error": "journal purchase failed", "upstream": p_payload
-            })
-        hb_info = p_payload.get("hyperblog")
-        hb_id = str(hb_info.get("id", "")) if isinstance(hb_info, dict) else ""
-    else:
-        hb_id = room_image.generate_room_hyperblog(store, bonfire_id, room_id, user_query)
-
-    if not hb_id:
-        return JSONResponse(status_code=500, content={"error": "hyperblog creation failed"})
-
-    def _bg() -> None:
-        room_image.poll_and_update_room_image(store, bonfire_id, room_id, hb_id)
-
-    threading.Thread(target=_bg, daemon=True).start()
-    return JSONResponse({
-        "status": "generating",
-        "hyperblog_id": hb_id,
-        "room_id": room_id,
-        "dataroom_id": dataroom_id,
-    })
-
-
-@router.get("/game/room/journal")
-def route_get_room_journal(
-    room_id: str = Query(...),
-    bonfire_id: str = Query(...),
-    limit: int = Query(default=5, ge=1, le=20),
-    store: GameStore = Depends(get_store),
-) -> JSONResponse:
-    """List recent HyperBlog journal entries for a room."""
-    room = store.get_room_by_id(bonfire_id, room_id)
-    if not room:
-        return JSONResponse(status_code=404, content={"error": "room not found"})
-
-    dataroom_id = str(room.get("dataroom_id", ""))
-    if not dataroom_id:
-        return JSONResponse({"room_id": room_id, "entries": [], "count": 0})
-
-    url = f"{config.DELVE_BASE_URL}/datarooms/{dataroom_id}/hyperblogs?limit={limit}&offset=0"
-    status, payload = http_client._json_request("GET", url)
-    if status != 200 or not isinstance(payload, dict):
-        return JSONResponse(status_code=status or 502, content={"error": "failed to fetch journal"})
-
-    raw_blogs = payload.get("hyperblogs")
-    blogs: list[dict[str, object]] = raw_blogs if isinstance(raw_blogs, list) else []
-    entries: list[dict[str, object]] = []
-    for blog in blogs:
-        if not isinstance(blog, dict):
-            continue
-        entries.append({
-            "hyperblog_id": str(blog.get("id", "")),
-            "user_query": str(blog.get("user_query", "")),
-            "summary": str(blog.get("summary") or blog.get("preview") or ""),
-            "banner_url": str(blog.get("banner_url") or ""),
-            "author_wallet": str(blog.get("author_wallet", "")),
-            "created_at": str(blog.get("created_at", "")),
-            "generation_status": str(blog.get("generation_status", "")),
-        })
-
-    return JSONResponse({"room_id": room_id, "entries": entries, "count": len(entries)})
-
-
 # ---------------------------------------------------------------------------
-# WebSocket — real-time room event stream
+# WebSocket — real-time event stream
 # ---------------------------------------------------------------------------
 
 
@@ -2774,7 +2183,7 @@ async def ws_game(websocket: WebSocket) -> None:
     agent_id = websocket.query_params.get("agent_id", "")
 
     store: GameStore = websocket.app.state.store
-    hub: RoomHub = websocket.app.state.room_hub
+    hub: BroadcastHub = websocket.app.state.hub
 
     if not agent_id:
         await websocket.close(code=4001, reason="agent_id required")
@@ -2805,9 +2214,6 @@ async def ws_game(websocket: WebSocket) -> None:
 
     await websocket.accept()
     await hub.connect(agent_id, websocket)
-
-    if player.current_room:
-        await hub.subscribe(agent_id, player.current_room)
 
     try:
         while True:

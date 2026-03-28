@@ -15,11 +15,8 @@ from typing import Any, Callable
 from models import (
     AttemptState,
     GameState,
-    NpcState,
-    ObjectState,
     PlayerState,
     QuestState,
-    RoomState,
 )
 
 RoomEventCallback = Callable[[str, dict[str, Any]], None]
@@ -50,9 +47,6 @@ class GameStore:
         self.events_by_bonfire: dict[str, list[dict[str, object]]] = {}
         self.ledger_by_agent: dict[str, list[dict[str, object]]] = {}
         self.agent_context_by_agent: dict[str, dict[str, object]] = {}
-        self.room_chat_by_room: dict[str, list[dict[str, object]]] = {}
-        self.npcs_by_game: dict[str, dict[str, NpcState]] = {}
-        self.objects_by_game: dict[str, dict[str, ObjectState]] = {}
         self._load_from_disk()
 
     def emit_room_event(self, room_id: str, event: dict[str, Any]) -> None:
@@ -73,16 +67,6 @@ class GameStore:
             except Exception:
                 pass
 
-    def _schedule_room_image(self, bonfire_id: str, room_id: str) -> None:
-        """Fire a daemon thread to create a DataRoom + HyperBlog for a room."""
-        import room_image  # deferred to avoid circular imports
-
-        threading.Thread(
-            target=room_image.setup_room,
-            args=(self, bonfire_id, room_id),
-            daemon=True,
-        ).start()
-
     def _snapshot_locked(self) -> dict[str, object]:
         return {
             "players": [asdict(player) for player in self.players_by_agent.values()],
@@ -100,15 +84,6 @@ class GameStore:
             "events_by_bonfire": self.events_by_bonfire,
             "ledger_by_agent": self.ledger_by_agent,
             "agent_context_by_agent": self.agent_context_by_agent,
-            "room_chat_by_room": {k: v[-200:] for k, v in self.room_chat_by_room.items()},
-            "npcs_by_game": {
-                bid: {nid: asdict(npc) for nid, npc in npcs.items()}
-                for bid, npcs in self.npcs_by_game.items()
-            },
-            "objects_by_game": {
-                bid: {oid: asdict(obj) for oid, obj in objs.items()}
-                for bid, objs in self.objects_by_game.items()
-            },
         }
 
     def _persist_locked(self) -> None:
@@ -157,6 +132,8 @@ class GameStore:
             for game_obj in games_obj:
                 if not isinstance(game_obj, dict):
                     continue
+                # Strip legacy 'rooms' field if present
+                game_obj.pop("rooms", None)
                 try:
                     game = GameState(**game_obj)
                 except TypeError:
@@ -229,72 +206,6 @@ class GameStore:
             self.agent_context_by_agent = {
                 str(k): dict(v) for k, v in context_obj.items() if isinstance(v, dict)
             }
-
-        room_chat_obj = payload.get("room_chat_by_room")
-        if isinstance(room_chat_obj, dict):
-            self.room_chat_by_room = {
-                str(k): list(v) for k, v in room_chat_obj.items() if isinstance(v, list)
-            }
-
-        npcs_obj = payload.get("npcs_by_game")
-        if isinstance(npcs_obj, dict):
-            for bid, npc_map in npcs_obj.items():
-                if not isinstance(npc_map, dict):
-                    continue
-                loaded: dict[str, NpcState] = {}
-                for nid, npc_data in npc_map.items():
-                    if not isinstance(npc_data, dict):
-                        continue
-                    try:
-                        loaded[str(nid)] = NpcState(**npc_data)
-                    except TypeError:
-                        continue
-                self.npcs_by_game[str(bid)] = loaded
-
-        objects_obj = payload.get("objects_by_game")
-        if isinstance(objects_obj, dict):
-            for bid, obj_map in objects_obj.items():
-                if not isinstance(obj_map, dict):
-                    continue
-                loaded_objs: dict[str, ObjectState] = {}
-                for oid, obj_data in obj_map.items():
-                    if not isinstance(obj_data, dict):
-                        continue
-                    try:
-                        loaded_objs[str(oid)] = ObjectState(**obj_data)
-                    except TypeError:
-                        continue
-                self.objects_by_game[str(bid)] = loaded_objs
-
-        self._migrate_rooms()
-
-    def _migrate_rooms(self) -> None:
-        """Seed a starting room for any active game that has no rooms."""
-        dirty = False
-        for game in self.games_by_bonfire.values():
-            if game.status != "active":
-                continue
-            if game.rooms:
-                continue
-            room = RoomState(
-                room_id=str(uuid.uuid4()),
-                name="The Hearth",
-                description="A warm gathering place where all adventurers begin their journey.",
-            )
-            game.rooms.append(asdict(room))
-            game.updated_at = datetime.now(UTC).isoformat()
-            dirty = True
-        if dirty:
-            for player in self.players_by_agent.values():
-                if player.current_room:
-                    continue
-                game = self.games_by_bonfire.get(player.bonfire_id)
-                if not game or not game.rooms:
-                    continue
-                first = game.rooms[0]
-                if isinstance(first, dict) and "room_id" in first:
-                    player.current_room = str(first["room_id"])
-            self._persist_locked()
 
     def _append_event(self, bonfire_id: str, event_type: str, payload: dict[str, object]) -> None:
         events = self.events_by_bonfire.setdefault(bonfire_id, [])
@@ -689,7 +600,7 @@ class GameStore:
                 "last_gm_reaction": game.last_gm_reaction,
                 "last_episode_id": game.last_episode_id,
             }
-        # Broadcast GM reaction to ALL connected players (not just room-scoped)
+        # Broadcast GM reaction to ALL connected players
         world_event = {
             "type": "gm_reaction",
             "bonfire_id": bonfire_id,
@@ -714,439 +625,6 @@ class GameStore:
                 if aid not in self.players_by_agent:
                     return aid
             return owner_agents[0] if owner_agents else None
-
-    def create_room(
-        self, bonfire_id: str, name: str, description: str = "", connections: list[str] | None = None
-    ) -> RoomState:
-        with self._lock:
-            game = self.games_by_bonfire.get(bonfire_id)
-            if not game:
-                raise ValueError(f"No game for bonfire {bonfire_id}")
-            room = RoomState(
-                room_id=str(uuid.uuid4()),
-                name=name,
-                description=description,
-                connections=connections or [],
-            )
-            room_dict = asdict(room)
-            game.rooms.append(room_dict)
-            game.updated_at = datetime.now(UTC).isoformat()
-            self._persist_locked()
-
-        self.emit_world_event({
-            "type": "room_created", "room": room_dict, "bonfire_id": bonfire_id,
-        })
-        self._schedule_room_image(bonfire_id, room.room_id)
-        return room
-
-    def move_player(self, agent_id: str, room_id: str) -> bool:
-        with self._lock:
-            player = self.players_by_agent.get(agent_id)
-            if not player:
-                return False
-            game = self.games_by_bonfire.get(player.bonfire_id)
-            if not game:
-                return False
-            valid_ids = {r["room_id"] for r in game.rooms if isinstance(r, dict) and "room_id" in r}
-            if room_id not in valid_ids:
-                return False
-            old_room = player.current_room
-            player.current_room = room_id
-            self._persist_locked()
-        if old_room:
-            self.emit_room_event(old_room, {
-                "type": "player_left", "agent_id": agent_id, "old_room": old_room, "new_room": room_id,
-            })
-        self.emit_room_event(room_id, {
-            "type": "player_joined", "agent_id": agent_id, "old_room": old_room, "new_room": room_id,
-        })
-        return True
-
-    def get_room_map(self, bonfire_id: str) -> dict[str, object]:
-        with self._lock:
-            game = self.games_by_bonfire.get(bonfire_id)
-            rooms = list(game.rooms) if game else []
-            players: list[dict[str, str]] = []
-            for player in self.players_by_agent.values():
-                if player.bonfire_id == bonfire_id:
-                    players.append({
-                        "agent_id": player.agent_id,
-                        "wallet": player.wallet,
-                        "current_room": player.current_room,
-                    })
-            npcs_by_room: dict[str, list[dict[str, object]]] = {}
-            for npc in self.npcs_by_game.get(bonfire_id, {}).values():
-                if not npc.is_active:
-                    continue
-                npcs_by_room.setdefault(npc.room_id, []).append({
-                    "npc_id": npc.npc_id, "name": npc.name,
-                    "description": npc.description, "personality": npc.personality,
-                })
-            objects_by_room: dict[str, list[dict[str, object]]] = {}
-            for obj in self.objects_by_game.get(bonfire_id, {}).values():
-                if obj.is_consumed:
-                    continue
-                if obj.properties.get("location_type") == "room":
-                    rid = str(obj.properties.get("location_id", ""))
-                    if rid:
-                        objects_by_room.setdefault(rid, []).append({
-                            "object_id": obj.object_id, "name": obj.name,
-                            "obj_type": obj.obj_type, "description": obj.description,
-                        })
-            return {
-                "rooms": rooms, "players": players,
-                "npcs_by_room": npcs_by_room, "objects_by_room": objects_by_room,
-            }
-
-    def ensure_starting_room(self, bonfire_id: str) -> str:
-        """Ensure at least one room exists for the game and return its room_id."""
-        created_room_id = ""
-        with self._lock:
-            game = self.games_by_bonfire.get(bonfire_id)
-            if not game:
-                return ""
-            if game.rooms:
-                first = game.rooms[0]
-                return str(first.get("room_id", "")) if isinstance(first, dict) else ""
-            room = RoomState(
-                room_id=str(uuid.uuid4()),
-                name="The Hearth",
-                description="A warm gathering place where all adventurers begin their journey.",
-            )
-            game.rooms.append(asdict(room))
-            game.updated_at = datetime.now(UTC).isoformat()
-            self._persist_locked()
-            created_room_id = room.room_id
-
-        if created_room_id:
-            self._schedule_room_image(bonfire_id, created_room_id)
-        return created_room_id
-
-    def place_player_in_starting_room(self, agent_id: str) -> None:
-        """Place a player in the first room of their game if they have no room."""
-        with self._lock:
-            player = self.players_by_agent.get(agent_id)
-            if not player or player.current_room:
-                return
-            game = self.games_by_bonfire.get(player.bonfire_id)
-            if not game or not game.rooms:
-                return
-            first = game.rooms[0]
-            if isinstance(first, dict) and "room_id" in first:
-                player.current_room = str(first["room_id"])
-                self._persist_locked()
-
-    def append_room_message(
-        self, room_id: str, sender_agent_id: str, sender_wallet: str, role: str, text: str,
-    ) -> dict[str, object]:
-        with self._lock:
-            entry: dict[str, object] = {
-                "room_id": room_id,
-                "sender_agent_id": sender_agent_id,
-                "sender_wallet": sender_wallet,
-                "role": role,
-                "text": text,
-                "timestamp": datetime.now(UTC).isoformat(),
-            }
-            messages = self.room_chat_by_room.setdefault(room_id, [])
-            messages.append(entry)
-            if len(messages) > 200:
-                del messages[: len(messages) - 200]
-            self._persist_locked()
-        self.emit_room_event(room_id, {"type": "room_chat", **entry})
-        return entry
-
-    def get_room_messages(self, room_id: str, limit: int = 50) -> list[dict[str, object]]:
-        with self._lock:
-            messages = self.room_chat_by_room.get(room_id, [])
-            return list(messages[-limit:])
-
-    def update_room(
-        self, bonfire_id: str, room_id: str, description: str | None = None, connections: list[str] | None = None,
-    ) -> bool:
-        with self._lock:
-            game = self.games_by_bonfire.get(bonfire_id)
-            if not game:
-                return False
-            for room in game.rooms:
-                if isinstance(room, dict) and room.get("room_id") == room_id:
-                    if description is not None:
-                        room["description"] = description
-                    if connections is not None:
-                        room["connections"] = connections
-                    game.updated_at = datetime.now(UTC).isoformat()
-                    self._persist_locked()
-                    return True
-            return False
-
-    def set_room_graph_entity(self, bonfire_id: str, room_id: str, entity_uuid: str) -> bool:
-        with self._lock:
-            game = self.games_by_bonfire.get(bonfire_id)
-            if not game:
-                return False
-            for room in game.rooms:
-                if isinstance(room, dict) and room.get("room_id") == room_id:
-                    room["graph_entity_uuid"] = entity_uuid
-                    self._persist_locked()
-                    return True
-            return False
-
-    def update_room_dataroom(self, bonfire_id: str, room_id: str, dataroom_id: str) -> bool:
-        """Store the Delve DataRoom ID for a room."""
-        with self._lock:
-            game = self.games_by_bonfire.get(bonfire_id)
-            if not game:
-                return False
-            for room in game.rooms:
-                if isinstance(room, dict) and room.get("room_id") == room_id:
-                    room["dataroom_id"] = dataroom_id
-                    self._persist_locked()
-                    return True
-            return False
-
-    def update_room_image(
-        self,
-        bonfire_id: str,
-        room_id: str,
-        image_url: str,
-        summary: str,
-        hyperblog_id: str,
-    ) -> bool:
-        """Update room image URL and summary from a completed HyperBlog."""
-        with self._lock:
-            game = self.games_by_bonfire.get(bonfire_id)
-            if not game:
-                return False
-            for room in game.rooms:
-                if isinstance(room, dict) and room.get("room_id") == room_id:
-                    room["image_url"] = image_url
-                    room["latest_summary"] = summary
-                    room["latest_hyperblog_id"] = hyperblog_id
-                    game.updated_at = datetime.now(UTC).isoformat()
-                    self._persist_locked()
-                    self.emit_room_event(room_id, {
-                        "type": "room_image_updated",
-                        "room_id": room_id,
-                        "image_url": image_url,
-                        "latest_summary": summary,
-                        "hyperblog_id": hyperblog_id,
-                    })
-                    return True
-            return False
-
-    def get_room_by_id(self, bonfire_id: str, room_id: str) -> dict[str, object] | None:
-        with self._lock:
-            game = self.games_by_bonfire.get(bonfire_id)
-            if not game:
-                return None
-            for room in game.rooms:
-                if isinstance(room, dict) and room.get("room_id") == room_id:
-                    return dict(room)
-            return None
-
-    # ── NPC management ──
-
-    def create_npc(
-        self,
-        bonfire_id: str,
-        name: str,
-        room_id: str,
-        personality: str,
-        description: str = "",
-        dialogue_style: str = "",
-        graph_entity_uuid: str = "",
-    ) -> NpcState:
-        with self._lock:
-            game = self.games_by_bonfire.get(bonfire_id)
-            if not game:
-                raise ValueError(f"No game for bonfire {bonfire_id}")
-            npc = NpcState(
-                npc_id=str(uuid.uuid4()),
-                name=name,
-                room_id=room_id,
-                personality=personality,
-                description=description,
-                dialogue_style=dialogue_style,
-                graph_entity_uuid=graph_entity_uuid,
-            )
-            self.npcs_by_game.setdefault(bonfire_id, {})[npc.npc_id] = npc
-            self._persist_locked()
-            return npc
-
-    def get_npc(self, bonfire_id: str, npc_id: str) -> NpcState | None:
-        with self._lock:
-            return self.npcs_by_game.get(bonfire_id, {}).get(npc_id)
-
-    def get_npcs_in_room(self, bonfire_id: str, room_id: str) -> list[NpcState]:
-        with self._lock:
-            return [
-                npc for npc in self.npcs_by_game.get(bonfire_id, {}).values()
-                if npc.room_id == room_id and npc.is_active
-            ]
-
-    def update_npc(
-        self,
-        bonfire_id: str,
-        npc_id: str,
-        room_id: str | None = None,
-        personality: str | None = None,
-        description: str | None = None,
-    ) -> bool:
-        with self._lock:
-            npc = self.npcs_by_game.get(bonfire_id, {}).get(npc_id)
-            if not npc:
-                return False
-            if room_id is not None:
-                npc.room_id = room_id
-            if personality is not None:
-                npc.personality = personality
-            if description is not None:
-                npc.description = description
-            self._persist_locked()
-            return True
-
-    def remove_npc(self, bonfire_id: str, npc_id: str) -> bool:
-        with self._lock:
-            npc = self.npcs_by_game.get(bonfire_id, {}).get(npc_id)
-            if not npc:
-                return False
-            npc.is_active = False
-            self._persist_locked()
-            return True
-
-    # ── Object / Inventory management ──
-
-    def create_object(
-        self,
-        bonfire_id: str,
-        name: str,
-        description: str,
-        obj_type: str = "artifact",
-        properties: dict[str, str] | None = None,
-        graph_entity_uuid: str = "",
-    ) -> ObjectState:
-        with self._lock:
-            game = self.games_by_bonfire.get(bonfire_id)
-            if not game:
-                raise ValueError(f"No game for bonfire {bonfire_id}")
-            obj = ObjectState(
-                object_id=str(uuid.uuid4()),
-                name=name,
-                description=description,
-                obj_type=obj_type,
-                properties=properties or {},
-                graph_entity_uuid=graph_entity_uuid,
-            )
-            self.objects_by_game.setdefault(bonfire_id, {})[obj.object_id] = obj
-            self._persist_locked()
-            return obj
-
-    def get_object(self, bonfire_id: str, object_id: str) -> ObjectState | None:
-        with self._lock:
-            return self.objects_by_game.get(bonfire_id, {}).get(object_id)
-
-    def get_objects_in_room(self, bonfire_id: str, room_id: str) -> list[ObjectState]:
-        """Return non-consumed objects located in a room (stored in room properties)."""
-        with self._lock:
-            room_objects: list[ObjectState] = []
-            for obj in self.objects_by_game.get(bonfire_id, {}).values():
-                if obj.is_consumed:
-                    continue
-                if obj.properties.get("location_type") == "room" and obj.properties.get("location_id") == room_id:
-                    room_objects.append(obj)
-            return room_objects
-
-    def grant_object_to_player(self, bonfire_id: str, agent_id: str, object_id: str) -> bool:
-        with self._lock:
-            player = self.players_by_agent.get(agent_id)
-            obj = self.objects_by_game.get(bonfire_id, {}).get(object_id)
-            if not player or not obj or obj.is_consumed:
-                return False
-            obj.properties["location_type"] = "player"
-            obj.properties["location_id"] = agent_id
-            if object_id not in player.inventory:
-                player.inventory.append(object_id)
-            self._persist_locked()
-            return True
-
-    def grant_object_to_npc(self, bonfire_id: str, npc_id: str, object_id: str) -> bool:
-        with self._lock:
-            npc = self.npcs_by_game.get(bonfire_id, {}).get(npc_id)
-            obj = self.objects_by_game.get(bonfire_id, {}).get(object_id)
-            if not npc or not obj or obj.is_consumed:
-                return False
-            obj.properties["location_type"] = "npc"
-            obj.properties["location_id"] = npc_id
-            if object_id not in npc.inventory:
-                npc.inventory.append(object_id)
-            self._persist_locked()
-            return True
-
-    def drop_object_in_room(self, bonfire_id: str, room_id: str, object_id: str) -> bool:
-        with self._lock:
-            obj = self.objects_by_game.get(bonfire_id, {}).get(object_id)
-            if not obj or obj.is_consumed:
-                return False
-            prev_loc_type = obj.properties.get("location_type", "")
-            prev_loc_id = obj.properties.get("location_id", "")
-            if prev_loc_type == "player":
-                player = self.players_by_agent.get(prev_loc_id)
-                if player and object_id in player.inventory:
-                    player.inventory.remove(object_id)
-            elif prev_loc_type == "npc":
-                npc = self.npcs_by_game.get(bonfire_id, {}).get(prev_loc_id)
-                if npc and object_id in npc.inventory:
-                    npc.inventory.remove(object_id)
-            obj.properties["location_type"] = "room"
-            obj.properties["location_id"] = room_id
-            self._persist_locked()
-            return True
-
-    def use_object(self, bonfire_id: str, agent_id: str, object_id: str) -> dict[str, object]:
-        """Apply an object's effects and return a result dict."""
-        with self._lock:
-            player = self.players_by_agent.get(agent_id)
-            obj = self.objects_by_game.get(bonfire_id, {}).get(object_id)
-            if not player or not obj or obj.is_consumed:
-                return {"success": False, "error": "object_not_found_or_consumed"}
-            if object_id not in player.inventory:
-                return {"success": False, "error": "not_in_inventory"}
-
-            effects: list[str] = []
-            unlocks_room = obj.properties.get("unlocks_room")
-            if unlocks_room:
-                game = self.games_by_bonfire.get(bonfire_id)
-                if game and player.current_room:
-                    for room in game.rooms:
-                        if isinstance(room, dict) and room.get("room_id") == player.current_room:
-                            conns = room.setdefault("connections", [])
-                            if isinstance(conns, list) and unlocks_room not in conns:
-                                conns.append(unlocks_room)
-                                effects.append(f"Unlocked passage to {unlocks_room}")
-                            break
-
-            reveals_entity = obj.properties.get("reveals_entity")
-            if reveals_entity:
-                effects.append(f"Revealed entity {reveals_entity}")
-
-            if obj.obj_type == "consumable":
-                obj.is_consumed = True
-                player.inventory.remove(object_id)
-                effects.append("Item consumed")
-            self._persist_locked()
-            return {"success": True, "effects": effects, "object": asdict(obj)}
-
-    def get_player_inventory(self, bonfire_id: str, agent_id: str) -> list[dict[str, object]]:
-        with self._lock:
-            player = self.players_by_agent.get(agent_id)
-            if not player:
-                return []
-            result: list[dict[str, object]] = []
-            for oid in player.inventory:
-                obj = self.objects_by_game.get(bonfire_id, {}).get(oid)
-                if obj and not obj.is_consumed:
-                    result.append(asdict(obj))
-            return result
 
     def restore_players(self, wallet: str, purchase_tx_hash: str | None = None) -> list[dict[str, object]]:
         with self._lock:

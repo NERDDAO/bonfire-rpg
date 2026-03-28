@@ -236,15 +236,15 @@ def _process_gm_stacks(store: GameStore) -> dict[str, object]:
         if not config.DELVE_API_KEY:
             continue
 
-        room_summary = gm_engine._build_room_structured_summary(store, bonfire_id)
-        if room_summary:
+        # Push world state summary to GM stack before processing
+        game_obj = store.get_game(bonfire_id)
+        world_state = game_obj.world_state_summary if game_obj else ""
+        if world_state:
             now_iso = datetime.now(UTC).isoformat()
-            game_obj = store.get_game(bonfire_id)
-            world_state = game_obj.world_state_summary if game_obj else ""
             summary_msg = (
-                "You are the Game Master. Here is the current room-by-room activity summary "
+                "You are the Game Master. Here is the current world state "
                 "for your world. Use this to inform your next narrative episode.\n"
-                f"World state: {world_state}\n\n{room_summary}"
+                f"World state: {world_state}"
             )
             http_client._agent_json_request(
                 "POST",

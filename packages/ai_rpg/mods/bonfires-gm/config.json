@@ -1,8 +1,13 @@
 {
-  "gm_server_url": "http://localhost:9997",
+  "delve_base_url": "http://localhost:8000",
+  "delve_api_key": "",
   "bonfire_id": "",
   "agent_id": "",
   "player_name": "",
-  "sync_interval_ms": 30000,
+  "is_host": true,
+  "host_port": 9998,
+  "host_url": "",
+  "gm_cron_interval_ms": 60000,
+  "kg_refresh_interval_ms": 45000,
   "auto_sync": true
 }

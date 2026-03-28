@@ -1,17 +1,18 @@
 /**
- * Bonfires GM Mod — Networks ai_rpg instances through shared world knowledge.
+ * Bonfires GM Mod — P2P networked multiplayer for ai_rpg.
  *
- * Three layers:
- * 1. STACK: pushes player action summaries to Bonfires (no LLM call)
- * 2. CRON: processes stacks → episodes → GM decisions → world events
- * 3. KG CONTEXT: injects cross-player world knowledge into AI prompts
- *    so NPCs remember other players, regions reference shared lore,
- *    and the world feels alive across instances
+ * HOST MODE: Runs WS server + GM cron. Processes stacks, triggers GM
+ *   decisions, broadcasts to all connected clients.
+ * CLIENT MODE: Connects WS to host. Pushes to Delve stack directly
+ *   via SDK. Receives GM decisions and applies them natively.
+ *
+ * Both modes: push action summaries to Bonfires stack (no LLM call),
+ * query KG for cross-player world knowledge, inject into AI prompts.
  */
 
-const { GMClient } = require('./gm-client');
-const { WSBridge } = require('./ws-bridge');
+const { BonfiresClient } = require('./bonfires-sdk');
 const { KGContext } = require('./kg-context');
+const WebSocket = require('ws');
 const path = require('path');
 const fs = require('fs');
 
@@ -22,42 +23,53 @@ function register(scope) {
   const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
   if (!config.bonfire_id || !config.agent_id) {
-    console.log('[bonfires-gm] Not configured — set bonfire_id and agent_id in config.json');
+    console.log('[bonfires-gm] Not configured — set bonfire_id, agent_id, delve_api_key in config.json');
     registerConfigRoutes();
     return;
   }
 
-  const gm = new GMClient(config);
-  const kg = new KGContext(gm);
-  let wsBridge = null;
-  let syncInterval = null;
-  let kgRefreshInterval = null;
+  // --- SDK client (talks directly to Delve, no proxy) ---
+  const sdk = new BonfiresClient({
+    baseUrl: config.delve_base_url,
+    apiKey: config.delve_api_key,
+    bonfireId: config.bonfire_id,
+    agentId: config.agent_id,
+  });
+
+  const kg = new KGContext(sdk);
 
   // ========================================================
-  // LAYER 1: STACK — Push action summaries (no LLM call)
+  // STACK PUSH — After each /api/chat, push to Delve directly
   // ========================================================
 
   app.use('/api/chat', (req, res, next) => {
     if (req.method !== 'POST') return next();
-
     const originalJson = res.json.bind(res);
     res.json = function (data) {
-      setImmediate(() => pushToStack(req.body, data));
+      setImmediate(() => pushToStack(req.body));
       return originalJson(data);
     };
     next();
   });
 
-  async function pushToStack(requestBody, responseData) {
+  async function pushToStack(requestBody) {
     const playerMessage = requestBody?.playerMessage || '';
     if (!playerMessage) return;
 
     const player = scope.currentPlayer;
     const location = player?.currentLocation;
+    const region = location?.region;
     const playerName = config.player_name || player?.name || 'Player';
 
-    const userText = `[${playerName} at ${location?.name || 'unknown'}] ${playerMessage}`;
+    // Rich context for the stack
+    const userText = [
+      `[${playerName}]`,
+      region ? `Region: ${region.name}` : '',
+      location ? `Location: ${location.name}` : '',
+      `Action: ${playerMessage}`,
+    ].filter(Boolean).join(' | ');
 
+    // Get narrator response
     let aiResponse = '';
     if (scope.chatHistory?.length > 0) {
       for (let i = scope.chatHistory.length - 1; i >= 0; i--) {
@@ -68,61 +80,191 @@ function register(scope) {
       }
     }
 
-    const agentText = aiResponse || `[${playerName}] Action processed.`;
+    const now = new Date().toISOString();
+    const chatId = `airpg-${config.agent_id}`;
 
     try {
-      await gm.pushToStack(userText, agentText);
+      await sdk.agents.stackAdd([
+        { text: userText, userId: 'game-player', chatId, timestamp: now, role: 'user' },
+        { text: aiResponse || 'Action processed.', userId: `agent:${config.agent_id}`, chatId, timestamp: now, role: 'assistant' },
+      ], { paired: true });
     } catch (err) {
       console.error('[bonfires-gm] Stack push failed:', err.message);
     }
   }
 
   // ========================================================
-  // LAYER 2: CRON — Process stacks + WS bridge
+  // HOST MODE — WS server + GM cron
   // ========================================================
 
-  if (config.auto_sync && config.sync_interval_ms > 0) {
-    syncInterval = setInterval(async () => {
+  let wsServer = null;
+  let gmCronInterval = null;
+  const connectedClients = new Map(); // agentId → ws
+
+  if (config.is_host) {
+    const port = config.host_port || 9998;
+
+    wsServer = new WebSocket.Server({ port });
+    console.log(`[bonfires-gm] HOST MODE — WS server on :${port}`);
+
+    wsServer.on('connection', (ws) => {
+      let clientAgentId = null;
+
+      ws.on('message', (raw) => {
+        try {
+          const msg = JSON.parse(raw.toString());
+
+          if (msg.type === 'register') {
+            clientAgentId = msg.agent_id;
+            connectedClients.set(clientAgentId, ws);
+            console.log(`[bonfires-gm] Client registered: ${clientAgentId}`);
+            ws.send(JSON.stringify({ type: 'registered', agent_id: clientAgentId }));
+          }
+
+          if (msg.type === 'action_summary' && clientAgentId) {
+            // Broadcast other players' actions to everyone else
+            broadcastToOthers(clientAgentId, {
+              type: 'player_action',
+              agent_id: clientAgentId,
+              summary: msg.summary,
+            });
+          }
+        } catch (err) {
+          console.error('[bonfires-gm] WS parse error:', err.message);
+        }
+      });
+
+      ws.on('close', () => {
+        if (clientAgentId) {
+          connectedClients.delete(clientAgentId);
+          console.log(`[bonfires-gm] Client disconnected: ${clientAgentId}`);
+        }
+      });
+    });
+
+    function broadcastToAll(event) {
+      const json = JSON.stringify(event);
+      for (const [, ws] of connectedClients) {
+        if (ws.readyState === WebSocket.OPEN) ws.send(json);
+      }
+      // Also broadcast locally
+      handleWorldEvent(event);
+    }
+
+    function broadcastToOthers(excludeAgentId, event) {
+      const json = JSON.stringify(event);
+      for (const [agentId, ws] of connectedClients) {
+        if (agentId !== excludeAgentId && ws.readyState === WebSocket.OPEN) {
+          ws.send(json);
+        }
+      }
+    }
+
+    // GM Cron — process stacks and trigger GM decisions
+    gmCronInterval = setInterval(async () => {
       try {
-        const result = await gm.processStack();
-        if (result?.episode_id) {
-          console.log(`[bonfires-gm] Episode created: ${result.episode_id}`);
+        // Process host agent's stack
+        const result = await sdk.agents.stackProcess();
+        if (result?.episode_id || result?.data?.episode_id) {
+          const episodeId = result.episode_id || result.data?.episode_id;
+          console.log(`[bonfires-gm] Episode created: ${episodeId}`);
+
+          // Get GM reaction via agent chat
+          const gmReaction = await sdk.agents.chat(
+            `You are the Game Master for a shared world. A new episode has been created (${episodeId}). ` +
+            `React to recent events and decide on world changes. Return JSON with: ` +
+            `{"reaction": "narrative", "world_events": ["event for all players"], ` +
+            `"npc_spawns": [{"name", "description", "locationName", "personality"}], ` +
+            `"quest_hooks": [{"name", "description", "objectives": []}]}`,
+            { graphMode: 'adaptive' }
+          );
+
+          const reply = gmReaction?.reply || '';
+          const parsed = safeJsonParse(reply);
+
+          if (parsed) {
+            broadcastToAll({
+              type: 'gm_decision',
+              decision: parsed,
+              episode_id: episodeId,
+            });
+          } else if (reply) {
+            broadcastToAll({
+              type: 'gm_reaction',
+              reaction: reply,
+              episode_id: episodeId,
+            });
+          }
         }
       } catch (err) {
-        console.error('[bonfires-gm] Cron sync failed:', err.message);
+        console.error('[bonfires-gm] GM cron failed:', err.message);
       }
-    }, config.sync_interval_ms);
+    }, config.gm_cron_interval_ms || 60000);
   }
 
-  // WS bridge for real-time world events
-  wsBridge = new WSBridge(config, {
-    onWorldEvent: (event) => handleWorldEvent(event),
-    onConnect: () => {
-      realtimeHub.broadcast({ type: 'bonfires_gm_status', payload: { connected: true } });
-    },
-    onDisconnect: () => {
-      realtimeHub.broadcast({ type: 'bonfires_gm_status', payload: { connected: false } });
-    },
-  });
-  wsBridge.connect();
+  // ========================================================
+  // CLIENT MODE — Connect WS to host
+  // ========================================================
+
+  let hostWs = null;
+
+  if (!config.is_host && config.host_url) {
+    function connectToHost() {
+      hostWs = new WebSocket(config.host_url);
+
+      hostWs.on('open', () => {
+        console.log('[bonfires-gm] Connected to host');
+        hostWs.send(JSON.stringify({
+          type: 'register',
+          agent_id: config.agent_id,
+          wallet: config.wallet || '',
+        }));
+      });
+
+      hostWs.on('message', (raw) => {
+        try {
+          const event = JSON.parse(raw.toString());
+          handleWorldEvent(event);
+        } catch (err) {
+          console.error('[bonfires-gm] Host message parse error:', err.message);
+        }
+      });
+
+      hostWs.on('close', () => {
+        console.log('[bonfires-gm] Disconnected from host, reconnecting...');
+        setTimeout(connectToHost, 3000);
+      });
+
+      hostWs.on('error', () => {});
+    }
+
+    connectToHost();
+  }
+
+  // ========================================================
+  // WORLD EVENT HANDLER — Applied in both modes
+  // ========================================================
 
   function handleWorldEvent(event) {
-    const type = event.type || event.event_type;
-    const payload = event.payload || event;
+    const type = event.type;
+    if (!type) return;
 
-    if (payload.agent_id === config.agent_id || payload.sender_agent_id === config.agent_id) return;
-
-    let text = null;
     switch (type) {
-      case 'room_message': text = payload.text || ''; break;
-      case 'player_joined': text = 'Another adventurer arrives nearby.'; break;
-      case 'player_left': text = 'An adventurer departs the area.'; break;
-      case 'gm_reaction': text = `[World] ${payload.reaction || 'Something shifts...'}`;  break;
-      case 'npc_spawned': text = `[World] ${payload.name || 'A figure'} has appeared.`; break;
-      case 'room_updated': text = '[World] The surroundings change...'; break;
-      case 'object_created': text = `[World] ${payload.name || 'Something'} materializes.`; break;
+      case 'gm_decision':
+        applyGmDecision(event.decision || {});
+        break;
+      case 'gm_reaction':
+        injectNarration(`[World] ${event.reaction || 'Something shifts...'}`);
+        break;
+      case 'player_action':
+        if (event.agent_id !== config.agent_id) {
+          injectNarration(`[Elsewhere] ${event.summary || 'Another adventurer acts...'}`);
+        }
+        break;
+      case 'world_event':
+        injectNarration(event.text || 'The world changes...');
+        break;
     }
-    if (text) injectNarration(text);
   }
 
   function injectNarration(text) {
@@ -136,143 +278,100 @@ function register(scope) {
   }
 
   // ========================================================
-  // LAYER 3: KG CONTEXT — Inject world knowledge into prompts
+  // APPLY GM DECISION — Create regions/NPCs/items natively
   // ========================================================
 
-  // Refresh KG context periodically
-  kgRefreshInterval = setInterval(() => {
+  async function applyGmDecision(decision) {
+    const reaction = decision.reaction || '';
+    if (reaction) {
+      injectNarration(`[Game Master] ${reaction}`);
+    }
+
+    // World events — narrative text for all players
+    const worldEvents = decision.world_events || [];
+    for (const text of worldEvents) {
+      injectNarration(`[World] ${text}`);
+    }
+
+    // NPC spawns — create via ai_rpg's scope if available
+    const npcSpawns = decision.npc_spawns || [];
+    for (const npc of npcSpawns) {
+      injectNarration(`[World] ${npc.name || 'A figure'} arrives: ${npc.description || ''}`);
+      // TODO: Use scope to create actual NPC via ai_rpg's Player class
+      // This requires deeper integration with ai_rpg's object system
+    }
+
+    // Quest hooks — inject as narration for now
+    const questHooks = decision.quest_hooks || [];
+    for (const quest of questHooks) {
+      injectNarration(`[Quest Available] ${quest.name || 'New quest'}: ${quest.description || ''}`);
+      // TODO: Create actual Quest via scope
+    }
+
+    // Item appearances
+    const items = decision.item_appearances || [];
+    for (const item of items) {
+      injectNarration(`[World] ${item.name || 'Something'} appears: ${item.description || ''}`);
+      // TODO: Create actual Thing via scope
+    }
+  }
+
+  // ========================================================
+  // KG CONTEXT — Same as before, now using SDK directly
+  // ========================================================
+
+  setInterval(() => {
     kg.refresh(scope).catch(err =>
       console.error('[bonfires-gm] KG refresh failed:', err.message)
     );
-  }, 45_000); // every 45s
+  }, config.kg_refresh_interval_ms || 45000);
 
-  // Initial fetch
   kg.refresh(scope).catch(() => {});
 
-  // --- Nunjucks template globals ---
-  // These are available in ALL prompt templates as global functions
-
-  // Recent world events from other players
+  // Template globals (same as before)
   nunjucks.addGlobal('getWorldEvents', (limit) => kg.getWorldEvents(limit));
-
-  // Lore about the current region from the KG
   nunjucks.addGlobal('getRegionLore', () => kg.getRegionLore());
-
-  // Facts about a specific location
   nunjucks.addGlobal('getLocationFacts', (name) => kg.getLocationFacts(name));
-
-  // Cross-player NPC memories
   nunjucks.addGlobal('getNpcMemories', (npcName) => kg.getNpcMemories(npcName));
-
-  // Faction intelligence from the KG
   nunjucks.addGlobal('getFactionIntel', () => kg.getFactionIntel());
-
-  // Prophecies and patterns across all players
   nunjucks.addGlobal('getProphecies', () => kg.getProphecies());
-
-  // Full formatted KG context block (XML) for injection
   nunjucks.addGlobal('getWorldKnowledge', () => kg.formatForPrompt());
-
-  // Rumors — what travelers and merchants are saying
-  nunjucks.addGlobal('getRumors', () => {
-    const entry = kg.cache.get('rumors');
-    return entry?.data || [];
-  });
-
-  // --- Middleware: enrich /api/chat requests with KG context ---
-  // Refresh KG before each player action so prompts have fresh data
-
-  app.use('/api/chat', async (req, res, next) => {
-    if (req.method !== 'POST') return next();
-    try {
-      await kg.refresh(scope);
-    } catch {
-      // Non-blocking — stale cache is better than no response
-    }
-    next();
-  });
-
-  // Pre-fetch rumors and dreams on location change
-  app.use('/api/chat', async (req, res, next) => {
-    if (req.method !== 'POST') return next();
-    // Trigger async fetches for data that templates might need
-    Promise.allSettled([
-      kg.getRumors(),
-      kg.getDreamContent(),
-    ]).catch(() => {});
-    next();
-  });
-
-  // ========================================================
-  // LAYER 3b: UNREASONABLE INJECTIONS
-  // ========================================================
-
-  // DREAM SEQUENCES: When player rests/sleeps, inject distant world visions
-  nunjucks.addGlobal('getDreamVisions', () => {
-    const entry = kg.cache.get('dreams');
-    return entry?.data || [];
-  });
-
-  // ITEM PROVENANCE: Objects carry history from their journey across players
-  nunjucks.addGlobal('getItemHistory', (itemName) => {
-    const entry = kg.cache.get(`item:${itemName}`);
-    return entry?.data || [];
-  });
-
-  // REPUTATION ECHOES: What the world knows about an entity
-  nunjucks.addGlobal('getReputation', (name) => {
-    const entry = kg.cache.get(`rep:${name}`);
-    return entry?.data || [];
-  });
-
-  // WORLD WHISPERS: Cryptic fragments from the KG that hint at
-  // things happening elsewhere — injected into ambient narration
+  nunjucks.addGlobal('getRumors', () => { const e = kg.cache.get('rumors'); return e?.data || []; });
+  nunjucks.addGlobal('getDreamVisions', () => { const e = kg.cache.get('dreams'); return e?.data || []; });
+  nunjucks.addGlobal('getItemHistory', (n) => { const e = kg.cache.get(`item:${n}`); return e?.data || []; });
+  nunjucks.addGlobal('getReputation', (n) => { const e = kg.cache.get(`rep:${n}`); return e?.data || []; });
   nunjucks.addGlobal('getWorldWhispers', () => {
     const events = kg.getWorldEvents(3);
-    if (events.length === 0) return [];
-    // Transform events into cryptic whispers
+    if (!events.length) return [];
     return events.map(e => {
-      const summary = e.summary || '';
-      // Deliberately obscure — the player gets hints, not facts
-      if (summary.includes('defeat') || summary.includes('slay'))
-        return 'A distant roar falls silent. Something powerful has ended.';
-      if (summary.includes('discover') || summary.includes('found'))
-        return 'The wind carries a scent you cannot place — something old has been disturbed.';
-      if (summary.includes('trade') || summary.includes('merchant'))
-        return 'The roads feel different today. Commerce shifts like sand.';
-      if (summary.includes('quest') || summary.includes('mission'))
-        return 'Somewhere, a bell tolls for a task begun.';
+      const s = e.summary || '';
+      if (s.includes('defeat') || s.includes('slay')) return 'A distant roar falls silent.';
+      if (s.includes('discover') || s.includes('found')) return 'Something old has been disturbed.';
+      if (s.includes('quest')) return 'Somewhere, a bell tolls for a task begun.';
       return 'The world breathes differently today.';
     });
   });
-
-  // DÉJÀ VU: When an NPC says something that echoes a past episode
-  // from another player, flag it for the narrator
   nunjucks.addGlobal('getDejaVu', (npcName) => {
-    const memories = kg.getNpcMemories(npcName);
-    if (memories.length === 0) return null;
-    const oldest = memories[memories.length - 1];
-    return oldest?.summary || null;
+    const m = kg.getNpcMemories(npcName);
+    return m.length ? m[m.length - 1]?.summary || null : null;
   });
-
-  // CONVERGENCE DETECTOR: Are multiple players heading toward
-  // the same goal/location? Creates dramatic tension.
   nunjucks.addGlobal('getConvergenceHints', () => {
     const events = kg.getWorldEvents(10);
-    // Look for patterns — multiple events mentioning the same place/entity
     const mentions = {};
     for (const e of events) {
-      const words = (e.summary || '').toLowerCase().split(/\s+/);
-      for (const w of words) {
+      for (const w of (e.summary || '').toLowerCase().split(/\s+/)) {
         if (w.length > 5) mentions[w] = (mentions[w] || 0) + 1;
       }
     }
-    const hot = Object.entries(mentions)
-      .filter(([, count]) => count >= 3)
-      .map(([word]) => word);
-    return hot.length > 0
-      ? `Multiple forces seem drawn to the same point. The names "${hot.slice(0, 2).join('" and "')}" echo across the land.`
-      : null;
+    const hot = Object.entries(mentions).filter(([, c]) => c >= 3).map(([w]) => w);
+    return hot.length ? `Multiple forces drawn to "${hot.slice(0, 2).join('" and "')}"` : null;
+  });
+
+  // Refresh KG before each action
+  app.use('/api/chat', async (req, res, next) => {
+    if (req.method !== 'POST') return next();
+    kg.refresh(scope).catch(() => {});
+    next();
   });
 
   // ========================================================
@@ -282,8 +381,8 @@ function register(scope) {
   function registerConfigRoutes() {
     registerModRoute('post', '/configure', (req, res) => {
       const updates = req.body || {};
-      for (const key of ['bonfire_id', 'agent_id', 'player_name', 'gm_server_url', 'sync_interval_ms', 'auto_sync']) {
-        if (updates[key] !== undefined) config[key] = updates[key];
+      for (const key of Object.keys(updates)) {
+        if (config.hasOwnProperty(key)) config[key] = updates[key];
       }
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
       res.json({ success: true, config, note: 'Restart ai_rpg to apply.' });
@@ -294,27 +393,23 @@ function register(scope) {
 
   registerModRoute('get', '/status', (req, res) => {
     res.json({
-      connected: wsBridge?.ws?.readyState === 1,
+      mode: config.is_host ? 'host' : 'client',
+      connected: config.is_host ? true : hostWs?.readyState === WebSocket.OPEN,
+      clients: config.is_host ? connectedClients.size : 0,
       bonfire_id: config.bonfire_id,
       agent_id: config.agent_id,
       kg_cache_size: kg.cache.size,
-      world_events: kg.worldEvents.length,
-      npc_memories: kg.npcMemories.size,
     });
-  });
-
-  registerModRoute('get', '/world', async (req, res) => {
-    res.json(await gm.getWorldMap() || { error: 'unreachable' });
-  });
-
-  registerModRoute('get', '/feed', async (req, res) => {
-    res.json(await gm.getFeed() || { error: 'unreachable' });
   });
 
   registerModRoute('get', '/kg', async (req, res) => {
     const query = req.query.q || 'world state';
-    const result = await gm.delveSearch(query, parseInt(req.query.limit) || 10);
-    res.json(result || { error: 'search failed' });
+    try {
+      const result = await sdk.kg.search(query, { limit: parseInt(req.query.limit) || 10 });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   registerModRoute('get', '/kg/context', (req, res) => {
@@ -329,18 +424,24 @@ function register(scope) {
   });
 
   registerModRoute('post', '/process-now', async (req, res) => {
-    res.json(await gm.processStack() || { error: 'failed' });
+    try {
+      const result = await sdk.agents.stackProcess();
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
-  registerModRoute('post', '/kg/refresh', async (req, res) => {
-    await kg.refresh(scope);
-    res.json({ success: true, cache_size: kg.cache.size });
-  });
+  const mode = config.is_host ? `HOST (:${config.host_port || 9998})` : `CLIENT → ${config.host_url}`;
+  console.log(`[bonfires-gm] ${mode} | SDK → ${config.delve_base_url}`);
+}
 
-  console.log('[bonfires-gm] Mod loaded — stack + cron + WS + KG context injection');
-  console.log('[bonfires-gm] Template globals: getWorldEvents, getRegionLore, getNpcMemories,');
-  console.log('[bonfires-gm]   getFactionIntel, getProphecies, getWorldWhispers, getDreamVisions,');
-  console.log('[bonfires-gm]   getItemHistory, getReputation, getDejaVu, getConvergenceHints');
+function safeJsonParse(text) {
+  if (!text) return null;
+  try {
+    const match = text.match(/\{[\s\S]*\}/);
+    return match ? JSON.parse(match[0]) : null;
+  } catch { return null; }
 }
 
 module.exports = { register };
