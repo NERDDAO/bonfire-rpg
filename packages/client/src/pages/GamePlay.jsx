@@ -75,7 +75,7 @@ const GamePlay = () => {
   // WebSocket
   useEffect(() => {
     if (!agentId) return;
-    connect(agentId, {
+    connect(agentId, agentApiKey, {
       onEvent: (event) => {
         handleRoomEvent(event);
         const type = event.type || event.event_type;

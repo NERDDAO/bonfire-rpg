@@ -6,10 +6,12 @@
 const INITIAL_DELAY = 1000;
 const MAX_DELAY = 30000;
 
-export function createRoomSocket(agentId, { onEvent, onOpen, onClose, onError } = {}) {
+export function createRoomSocket(agentId, apiKey = "", { onEvent, onOpen, onClose, onError } = {}) {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const host = window.location.host;
-  const url = `${protocol}//${host}/ws/room/${agentId}`;
+  const params = new URLSearchParams({ agent_id: agentId });
+  if (apiKey) params.set("api_key", apiKey);
+  const url = `${protocol}//${host}/ws/game?${params}`;
 
   let ws = null;
   let delay = INITIAL_DELAY;

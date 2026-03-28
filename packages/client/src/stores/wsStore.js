@@ -16,11 +16,11 @@ const useWsStore = create(
 
       // --- actions ---
 
-      connect: (agentId, { onEvent } = {}) => {
+      connect: (agentId, apiKey = "", { onEvent } = {}) => {
         const existing = get().socket;
         if (existing) existing.close();
 
-        const socket = createRoomSocket(agentId, {
+        const socket = createRoomSocket(agentId, apiKey, {
           onEvent: (data) => {
             onEvent?.(data);
           },

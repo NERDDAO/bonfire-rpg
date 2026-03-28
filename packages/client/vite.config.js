@@ -26,7 +26,7 @@ export default defineConfig({
         target: "http://localhost:9997",
         changeOrigin: true,
       },
-      "/ws": {
+      "/ws/game": {
         target: "ws://localhost:9997",
         ws: true,
       },
