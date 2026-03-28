@@ -102,10 +102,10 @@ const GamePlay = () => {
     if (currentRoom) setVisitedRooms((prev) => new Set([...prev, currentRoom]));
   }, [currentRoom]);
 
-  // WebSocket — connect when agent is registered in game
+  // WebSocket — connect when agent is registered, sign with wallet
   useEffect(() => {
     if (!agentId || !myPlayer) return;
-    connect(agentId, agentApiKey, {
+    connect(agentId, {
       onEvent: (event) => {
         handleRoomEvent(event);
         const type = event.type || event.event_type;
@@ -113,7 +113,7 @@ const GamePlay = () => {
       },
     });
     return () => disconnect();
-  }, [agentId]);
+  }, [agentId, !!myPlayer]);
 
   // Describe room on entry (deduplicated)
   useEffect(() => {

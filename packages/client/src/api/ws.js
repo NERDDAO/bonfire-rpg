@@ -6,11 +6,14 @@
 const INITIAL_DELAY = 1000;
 const MAX_DELAY = 30000;
 
-export function createRoomSocket(agentId, apiKey = "", { onEvent, onOpen, onClose, onError } = {}) {
+export function createRoomSocket(agentId, { signature, timestamp, onEvent, onOpen, onClose, onError } = {}) {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const host = window.location.host;
   const params = new URLSearchParams({ agent_id: agentId });
-  if (apiKey) params.set("api_key", apiKey);
+  if (signature) {
+    params.set("sig", signature);
+    params.set("ts", timestamp);
+  }
   const url = `${protocol}//${host}/ws/game?${params}`;
 
   let ws = null;
@@ -37,8 +40,8 @@ export function createRoomSocket(agentId, apiKey = "", { onEvent, onOpen, onClos
 
     ws.onclose = (event) => {
       onClose?.(event);
-      // Don't reconnect on intentional server rejection (4001=no auth, 4004=not registered)
-      const noRetry = closed || event.code === 4001 || event.code === 4004;
+      // Don't reconnect on auth rejection or intentional close
+      const noRetry = closed || event.code === 4001 || event.code === 4003 || event.code === 4004;
       if (!noRetry) {
         reconnectTimer = setTimeout(() => {
           delay = Math.min(delay * 2, MAX_DELAY);

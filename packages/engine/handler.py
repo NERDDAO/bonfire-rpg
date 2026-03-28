@@ -2692,7 +2692,6 @@ def route_get_room_journal(
 @router.websocket("/ws/game")
 async def ws_game(websocket: WebSocket) -> None:
     agent_id = websocket.query_params.get("agent_id", "")
-    api_key = websocket.query_params.get("api_key", "")
 
     store: GameStore = websocket.app.state.store
     hub: RoomHub = websocket.app.state.room_hub
@@ -2706,8 +2705,23 @@ async def ws_game(websocket: WebSocket) -> None:
         await websocket.close(code=4004, reason="agent not registered")
         return
 
-    # API key is optional for registered players — registration already proved ownership.
-    # If provided, it's forwarded on agent chat calls; if not, server key is used.
+    # Verify wallet ownership via signature if provided
+    signature = websocket.query_params.get("sig", "")
+    timestamp = websocket.query_params.get("ts", "")
+    if signature and timestamp:
+        from eth_account.messages import encode_defunct
+        from eth_account import Account
+
+        message = f"bonfire-rpg:{agent_id}:{timestamp}"
+        try:
+            msg = encode_defunct(text=message)
+            recovered = Account.recover_message(msg, signature=signature).lower()
+            if recovered != player.wallet.lower():
+                await websocket.close(code=4003, reason="signature does not match agent wallet")
+                return
+        except Exception:
+            await websocket.close(code=4003, reason="invalid signature")
+            return
 
     await websocket.accept()
     await hub.connect(agent_id, websocket)
