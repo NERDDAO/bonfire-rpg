@@ -1,6 +1,6 @@
 /**
  * HTTP client for the Bonfires GM server (quest game engine).
- * Sends player actions as episodes, receives world state changes.
+ * Pushes player actions to the stack, processes episodes, reads world state.
  */
 
 const axios = require('axios');
@@ -24,15 +24,27 @@ class GMClient {
     }
   }
 
-  // Push player action to Bonfires via /agents/complete.
-  // This calls the Bonfires agent (gets a narrator response) AND
-  // automatically pushes paired messages to the stack as a side effect.
-  // The cron then processes the stack into episodes.
-  async pushAction(summary) {
-    return this.request('POST', '/agents/complete', {
+  // Push paired messages directly to the Bonfires stack — NO LLM call.
+  // Uses the engine's POST /game/agents/stack/add proxy which handles auth.
+  async pushToStack(userText, agentText) {
+    const now = new Date().toISOString();
+    const chatId = `airpg-${this.agentId}`;
+    return this.request('POST', '/agents/stack/add', {
       agent_id: this.agentId,
-      bonfire_id: this.bonfireId,
-      message: summary,
+      messages: [
+        { text: userText, userId: 'game-player', chatId, timestamp: now, role: 'user' },
+        { text: agentText, userId: `agent:${this.agentId}`, chatId, timestamp: now, role: 'assistant' },
+      ],
+      is_paired: true,
+    });
+  }
+
+  // Push a single message to the stack
+  async pushMessage(text, role = 'user') {
+    const now = new Date().toISOString();
+    return this.request('POST', '/agents/stack/add', {
+      agent_id: this.agentId,
+      message: { text, userId: 'game-player', chatId: `airpg-${this.agentId}`, timestamp: now, role },
     });
   }
 
@@ -54,27 +66,6 @@ class GMClient {
   // Get activity feed
   async getFeed(limit = 20) {
     return this.request('GET', `/feed?bonfire_id=${encodeURIComponent(this.bonfireId)}&limit=${limit}`);
-  }
-
-  // Register this client as a player (if not already registered)
-  async registerPlayer(wallet, purchaseId, purchaseTxHash, erc8004BonfireId = 1) {
-    return this.request('POST', '/agents/register-purchase', {
-      agent_id: this.agentId,
-      bonfire_id: this.bonfireId,
-      wallet_address: wallet,
-      purchase_id: purchaseId,
-      purchase_tx_hash: purchaseTxHash,
-      erc8004_bonfire_id: erc8004BonfireId,
-      episodes_requested: 100,
-    });
-  }
-
-  // Restore existing player
-  async restorePlayer(wallet) {
-    return this.request('POST', '/player/restore', {
-      wallet_address: wallet,
-      bonfire_id: this.bonfireId,
-    });
   }
 
   // Process stack to create an episode from accumulated messages

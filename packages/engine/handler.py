@@ -2007,6 +2007,49 @@ def route_inventory_use(
     return JSONResponse(result)
 
 
+@router.post("/game/agents/stack/add")
+def route_stack_add(
+    body: dict[str, object] = Body(default={}),
+    store: GameStore = Depends(get_store),
+) -> JSONResponse:
+    """Proxy to Delve stack/add — pushes messages without an LLM call."""
+    agent_id = _required_string(body, "agent_id")
+    player = store.get_player(agent_id)
+    if not player:
+        return JSONResponse(status_code=404, content={"error": "agent not registered"})
+    if not config.DELVE_API_KEY:
+        return JSONResponse(status_code=503, content={"error": "DELVE_API_KEY not set"})
+
+    # Forward to Delve stack/add
+    url = f"{config.DELVE_BASE_URL}/agents/{agent_id}/stack/add"
+    stack_body: dict[str, object] = {}
+    if body.get("messages"):
+        stack_body["messages"] = body["messages"]
+        stack_body["is_paired"] = bool(body.get("is_paired", False))
+    elif body.get("message"):
+        stack_body["message"] = body["message"]
+    else:
+        return JSONResponse(status_code=400, content={"error": "message or messages required"})
+
+    status, payload = http_client._agent_json_request("POST", url, config.DELVE_API_KEY, stack_body)
+
+    # Also append to room chat for visibility
+    if status == 200 and player.current_room:
+        text = ""
+        if body.get("message"):
+            msg = body["message"]
+            text = msg.get("text", str(msg)) if isinstance(msg, dict) else str(msg)
+        elif body.get("messages"):
+            msgs = body["messages"]
+            if isinstance(msgs, list) and msgs:
+                first = msgs[0]
+                text = first.get("text", "") if isinstance(first, dict) else str(first)
+        if text:
+            store.append_room_message(player.current_room, agent_id, "", "player", text[:500])
+
+    return JSONResponse(status_code=status, content=payload)
+
+
 @router.post("/game/agents/process-stack")
 def route_process_stack(
     body: dict[str, object] = Body(default={}),

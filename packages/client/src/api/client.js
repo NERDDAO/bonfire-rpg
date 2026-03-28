@@ -132,6 +132,12 @@ export function useItem(body) {
   return request("POST", "/inventory/use", body);
 }
 
+// --- Stack ---
+
+export function pushToStack(body) {
+  return request("POST", "/agents/stack/add", body);
+}
+
 // --- Backend processing ---
 
 export function processStack(body, agentApiKey = "") {

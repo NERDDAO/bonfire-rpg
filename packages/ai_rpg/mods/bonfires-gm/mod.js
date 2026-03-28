@@ -53,23 +53,23 @@ function register(scope) {
     // Build a rich summary for the stack
     const userText = `[${playerName} at ${location?.name || 'unknown'}] ${playerMessage}`;
 
-    // Get the AI response from chat history (last assistant message)
+    // Get the AI narrator response (last assistant message in chat history)
     let aiResponse = '';
     if (scope.chatHistory?.length > 0) {
-      const last = scope.chatHistory[scope.chatHistory.length - 1];
-      if (last?.role === 'assistant') {
-        aiResponse = (last.content || '').slice(0, 500);
+      for (let i = scope.chatHistory.length - 1; i >= 0; i--) {
+        if (scope.chatHistory[i]?.role === 'assistant') {
+          aiResponse = (scope.chatHistory[i].content || '').slice(0, 500);
+          break;
+        }
       }
     }
 
-    const agentText = aiResponse
-      ? `[Narrator for ${playerName}] ${aiResponse}`
-      : `[${playerName}] Action processed.`;
+    const agentText = aiResponse || `[${playerName}] Action processed.`;
 
     try {
-      await gm.pushAction(userText);
+      await gm.pushToStack(userText, agentText);
     } catch (err) {
-      console.error('[bonfires-gm] Action push failed:', err.message);
+      console.error('[bonfires-gm] Stack push failed:', err.message);
     }
   }
 
