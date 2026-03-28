@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Flame, Users, MapPin, Scroll } from "lucide-react";
+import { Flame, Users, Scroll } from "lucide-react";
 import { useGameStore } from "@/stores/gameStore";
 import { useLocation } from "wouter";
 
@@ -49,10 +49,9 @@ const Welcome = () => {
         {!isLoading && activeGames && activeGames.length > 0 && (
           <div className="grid gap-4 md:grid-cols-2">
             {activeGames.map((game) => {
-              const bonfireId = game.bonfire_id || game.bonfireId;
-              const prompt = game.game_prompt || game.gamePrompt || "";
-              const playerCount = game.player_count || game.playerCount || 0;
-              const roomCount = game.room_count || game.roomCount || 0;
+              const bonfireId = game.bonfire_id;
+              const prompt = game.game_prompt || "";
+              const playerCount = game.active_agent_count || 0;
 
               return (
                 <button
@@ -67,11 +66,7 @@ const Welcome = () => {
                   <div className="flex gap-4 text-sm text-gray-400">
                     <span className="flex items-center gap-1">
                       <Users className="w-4 h-4" />
-                      {playerCount} players
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <MapPin className="w-4 h-4" />
-                      {roomCount} rooms
+                      {playerCount} agents
                     </span>
                   </div>
                 </button>
