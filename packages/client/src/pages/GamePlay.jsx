@@ -11,6 +11,36 @@ import { usePlayerStore } from "@/stores/playerStore";
 import { useNarrativeStore, WS_EVENT, MSG } from "@/stores/narrativeStore";
 import { useWsStore } from "@/stores/wsStore";
 
+function AgentKeyInput() {
+  const { agentId, setAgentApiKey } = usePlayerStore();
+  const [key, setKey] = useState("");
+
+  return (
+    <div className="text-center py-4 space-y-3">
+      <p className="text-sm text-gray-400">Agent found: <span className="font-mono text-amber-300">{agentId?.slice(0, 12)}...</span></p>
+      <p className="text-xs text-gray-500">Enter your agent API key to start playing.</p>
+      <div className="flex gap-2 max-w-md mx-auto">
+        <input
+          type="text"
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          placeholder="Agent API key"
+          className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-amber-600"
+        />
+        <button
+          type="button"
+          onClick={() => { if (key.trim()) setAgentApiKey(key.trim()); }}
+          disabled={!key.trim()}
+          className="bg-amber-700 hover:bg-amber-600 disabled:opacity-50 px-4 py-2 rounded-lg text-sm font-medium"
+        >
+          Enter
+        </button>
+      </div>
+      <p className="text-xs text-gray-600">This is saved locally and sent as X-Agent-Api-Key.</p>
+    </div>
+  );
+}
+
 const WORLD_CHANGING_EVENTS = new Set([
   WS_EVENT.GM_REACTION, WS_EVENT.NPC_SPAWNED, WS_EVENT.ROOM_UPDATED,
   WS_EVENT.OBJECT_CREATED, WS_EVENT.PLAYER_MOVED,
@@ -179,8 +209,10 @@ const GamePlay = () => {
         <GameHistory chatEndRef={chatEndRef} />
 
         <div className="bg-gray-900 rounded-2xl p-3 sm:p-4 border border-amber-900/20">
-          {agentId ? (
+          {agentId && agentApiKey ? (
             <PlayerInterface bonfireId={bonfireId} />
+          ) : agentId && !agentApiKey ? (
+            <AgentKeyInput />
           ) : wallet ? (
             <div className="text-center py-4 text-gray-500 space-y-2">
               <p className="text-sm">Wallet connected. Looking for your agent...</p>
@@ -203,7 +235,7 @@ const GamePlay = () => {
 
         <div className="flex items-center gap-2 text-xs text-gray-600 px-1">
           <div className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : agentId && agentApiKey && myPlayer ? "bg-yellow-500" : "bg-gray-600"}`} />
-          {connected ? "Connected" : agentId && myPlayer ? "Reconnecting..." : wallet ? "Spectating (no agent)" : "Spectating"}
+          {connected ? "Connected" : agentId && agentApiKey && myPlayer ? "Reconnecting..." : agentId && !agentApiKey ? "Need API key" : wallet ? "Spectating (no agent)" : "Spectating"}
           {lastGmReaction && (
             <span className="ml-auto text-gray-500 truncate max-w-[200px] sm:max-w-xs">GM: {lastGmReaction.slice(0, 80)}</span>
           )}
