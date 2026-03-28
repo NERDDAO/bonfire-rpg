@@ -1924,7 +1924,7 @@ def route_npc_interact(
         "POST",
         chat_url,
         config.DELVE_API_KEY,
-        body={"message": message, "chat_history": [], "graph_mode": "disabled", "context": npc_prompt},
+        body={"message": message, "chat_history": [], "graph_mode": "static", "context": {"role": "npc", "npc_prompt": npc_prompt}},
     )
     if chat_status != 200:
         return JSONResponse(status_code=chat_status, content=chat_payload)
