@@ -53,7 +53,7 @@ const useNarrativeStore = create(
 
         try {
           const data = await apiCall(message);
-          const reply = data.reply || data.response || data.message || "";
+          const reply = data.chat?.reply || data.reply || data.response || data.message || "";
           if (reply) get().appendMessage(responseType, reply, extras(data));
           return data;
         } catch (err) {
