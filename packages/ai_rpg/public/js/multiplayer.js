@@ -78,6 +78,76 @@
     });
   }
 
+  // --- OOC/Events/Scene Tabs ---
+  function initOOCTabs() {
+    const tabs = document.querySelectorAll('.chat-ooc-tab');
+    const inputArea = document.getElementById('oocInputArea');
+    if (!tabs.length) return;
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const panelId = tab.dataset.panel;
+
+        // Switch active tab
+        tabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+
+        // Show/hide panels
+        document.querySelectorAll('.chat-ooc-content').forEach(p => p.hidden = true);
+        const panel = document.getElementById(panelId);
+        if (panel) panel.hidden = false;
+
+        // Show input only on OOC tab
+        if (inputArea) inputArea.hidden = (panelId !== 'oocChatPanel');
+      });
+    });
+  }
+
+  function addEventMessage(icon, text) {
+    const el = document.getElementById('eventMessages');
+    if (!el) return;
+    const div = document.createElement('div');
+    div.className = 'mp-ooc-msg';
+    div.innerHTML = `<span class="mp-ooc-msg-name">${esc(icon)}</span> <span class="mp-ooc-msg-text">${esc(text)}</span>`;
+    el.appendChild(div);
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function updateSceneDescription(text) {
+    const el = document.getElementById('sceneDescriptionText');
+    if (el) el.textContent = text || 'No scene loaded.';
+  }
+
+  // --- Event Mirror (copies event-summary messages to Events tab) ---
+  function initEventMirror() {
+    const chatLog = document.getElementById('chatLog');
+    if (!chatLog) return;
+
+    // Copy existing event summaries
+    chatLog.querySelectorAll('.event-summary-batch').forEach(el => {
+      const title = el.querySelector('.message-sender')?.textContent || '';
+      const items = Array.from(el.querySelectorAll('.event-summary-list li')).map(li => li.textContent.trim());
+      if (title || items.length) {
+        addEventMessage('📜', title + (items.length ? ': ' + items.join(', ') : ''));
+      }
+    });
+
+    // Watch for new ones
+    const observer = new MutationObserver(mutations => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType !== 1) continue;
+          if (node.classList?.contains('event-summary-batch')) {
+            const title = node.querySelector('.message-sender')?.textContent || '';
+            const items = Array.from(node.querySelectorAll('.event-summary-list li')).map(li => li.textContent.trim());
+            addEventMessage('📜', title + (items.length ? ': ' + items.join(', ') : ''));
+          }
+        }
+      }
+    });
+    observer.observe(chatLog, { childList: true });
+  }
+
   // --- Round Timer ---
   function showRoundTimer(startedAt, windowMs) {
     const el = document.getElementById('mpRoundTimer');
@@ -187,6 +257,8 @@
   // --- Init ---
   function init() {
     initOOCPanel();
+    initOOCTabs();
+    initEventMirror();
     // Expose to global for WS integration + Matrix
     window.multiplayerUI = {
       handleEvent: handleMultiplayerEvent,
@@ -197,6 +269,8 @@
       showDeathScreen,
       setPlayerId: (id) => { playerId = id; },
       setPlayerName: (name) => { playerName = name; },
+      addEventMessage,
+      updateSceneDescription,
       connectMatrix,
       disconnectMatrix,
       getMatrixChat: () => matrixChat,

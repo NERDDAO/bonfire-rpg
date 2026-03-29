@@ -241,11 +241,23 @@
                             </div>
 
                             <div class="chat-ooc-panel">
-                                <div class="chat-ooc-header">
-                                    <h3 class="mp-section-label" style="margin:0">💬 OOC</h3>
+                                <div class="chat-ooc-tabs">
+                                    <button class="chat-ooc-tab active" id="oocTabChat" data-panel="oocChatPanel">💬 OOC</button>
+                                    <button class="chat-ooc-tab" id="oocTabEvents" data-panel="oocEventsPanel">📜 Events</button>
+                                    <button class="chat-ooc-tab" id="oocTabScene" data-panel="oocScenePanel">🏰 Scene</button>
                                 </div>
-                                <div class="chat-ooc-messages" id="mpOOCMessages"></div>
-                                <div class="chat-ooc-input-area">
+                                <div class="chat-ooc-content" id="oocChatPanel">
+                                    <div class="chat-ooc-messages" id="mpOOCMessages"></div>
+                                </div>
+                                <div class="chat-ooc-content" id="oocEventsPanel" hidden>
+                                    <div class="chat-ooc-messages" id="eventMessages"></div>
+                                </div>
+                                <div class="chat-ooc-content" id="oocScenePanel" hidden>
+                                    <div class="scene-description" id="sceneDescription">
+                                        <p class="scene-description-text" id="sceneDescriptionText">No scene loaded.</p>
+                                    </div>
+                                </div>
+                                <div class="chat-ooc-input-area" id="oocInputArea">
                                     <input type="text" class="chat-ooc-input" id="oocInput" placeholder="Chat with players..." autocomplete="off">
                                     <button type="button" class="chat-ooc-send" id="oocSendBtn">Send</button>
                                 </div>
@@ -19764,6 +19776,11 @@
                     if (locationNameIcon) {
                         const resolvedVehicleIcon = resolveVehicleLocationIcon(location);
                         locationNameIcon.textContent = resolvedVehicleIcon || '📍';
+                    }
+
+                    // Update scene description in OOC panel
+                    if (window.multiplayerUI?.updateSceneDescription) {
+                        window.multiplayerUI.updateSceneDescription(locationDescriptionText);
                     }
 
                     const isVehicleContext = shouldUseVehicleLocationIcon(location);
