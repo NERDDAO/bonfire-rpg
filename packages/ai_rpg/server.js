@@ -74,6 +74,7 @@ const { GameInstance } = require('./GameInstance');
 const { BonfireManager } = require('./BonfireManager');
 const { RoundManager } = require('./RoundManager');
 const { MultiplayerHub } = require('./MultiplayerHub');
+const { MatrixNarrator } = require('./MatrixNarrator');
 
 Globals.baseDir = __dirname;
 Globals.sceneSummaries = new SceneSummaries();
@@ -627,9 +628,39 @@ const defaultInstance = bonfireManager.create('default', { config });
 Globals.activeInstance = defaultInstance;
 
 const multiplayerHub = new MultiplayerHub();
+
+// Matrix narrator bot (optional — enabled via config.yaml)
+let matrixNarrator = null;
+if (config.matrix?.enabled && config.matrix?.accessToken) {
+    matrixNarrator = new MatrixNarrator({
+        homeserverUrl: config.matrix.homeserverUrl || 'https://matrix.org',
+        accessToken: config.matrix.accessToken,
+        storageDir: config.matrix.storageDir || './matrix-storage',
+        onICAction: (bonfireId, locationId, matrixUserId, actionText, actionType) => {
+            console.log(`[matrix] IC action from ${matrixUserId} in ${locationId}: /${actionType} ${actionText}`);
+            roundManager.queueAction(locationId, {
+                playerId: matrixUserId,
+                playerName: matrixUserId.split(':')[0].slice(1), // @user:server → user
+                bonfireId,
+                text: actionText,
+                actionType,
+                timestamp: Date.now(),
+                source: 'matrix',
+            });
+        },
+    });
+    matrixNarrator.start().catch(err => {
+        console.error('[matrix] Failed to start bot:', err.message);
+        matrixNarrator = null;
+    });
+    console.log('[matrix] Narrator bot initializing...');
+} else {
+    console.log('[matrix] Narrator bot disabled (set matrix.enabled: true in config.yaml)');
+}
+
 const roundManager = new RoundManager({
     roundWindowMs: config.multiplayer?.round_window_ms || 20000,
-    onRoundClose: (locationId, actions) => {
+    onRoundClose: async (locationId, actions) => {
         console.log(`[round] Closed round for ${locationId} with ${actions.length} action(s)`);
         multiplayerHub.broadcastToLocation('default', locationId, {
             type: 'round_result',
@@ -637,6 +668,17 @@ const roundManager = new RoundManager({
             actions,
             timestamp: Date.now(),
         });
+
+        // Post narration to Matrix if enabled
+        // (In production, this would post the actual LLM narrator response)
+        if (matrixNarrator) {
+            const actionSummary = actions.map(a => `${a.playerName}: ${a.text}`).join('\n');
+            const locationObj = gameLocations.get(locationId);
+            const locationName = locationObj?.name || locationId;
+            matrixNarrator.postNarration('default', locationId, locationName,
+                `[Round closed — ${actions.length} action(s)]\n\n${actionSummary}`
+            ).catch(err => console.warn('[matrix] Failed to post narration:', err.message));
+        }
     },
 });
 
@@ -25087,6 +25129,7 @@ const apiScope = {
     bonfireManager,
     multiplayerHub,
     roundManager,
+    matrixNarrator,
     instance: defaultInstance,
 
 };
