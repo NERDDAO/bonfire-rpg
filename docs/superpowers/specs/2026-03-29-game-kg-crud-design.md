@@ -43,13 +43,13 @@ New file: `packages/ai_rpg/mods/bonfires-gm/game-kg.js`
 ```
 GameKG
 ├── sdk: BonfiresClient              // for API calls
-├── pending: { creates: [], updates: [], edges: [], removes: [] }
+├── pending: { creates: [], updates: [], edges: [] }
 ├── knownEntities: Map<gameId, { uuid, name, labels }>
 ├── sessionKEngramId: string
 │
 ├── trackEntity(type, gameObj)       // queue CREATE
 ├── updateEntity(gameId, changes)    // queue UPDATE
-├── removeEntity(gameId, meta)       // queue deactivation
+├── markEntity(gameId, status, meta)  // add status edge (DIED, DESTROYED, CONSUMED) — never delete
 ├── trackEdge(srcName, tgtName, rel, fact)  // queue edge
 │
 ├── flush()                          // batch push all pending to KG
@@ -93,12 +93,25 @@ The mod already intercepts game events. Add `gameKG.track*()` calls at these poi
 - NPC generated → `gameKG.trackEntity('npc', npc)` + edges
 
 **On combat/death:**
-- NPC dies → `gameKG.removeEntity(npcId, { cause, killedBy })`
+- NPC dies → `gameKG.markEntity(npcId, 'died', { cause, killedBy })` — creates edge `HAS_STATUS: died` + fact. Entity persists as historical record. Graphiti expiration handles relevance decay.
 - Player dies → handled by PermadeathManager (already creates KG entity)
+- Item destroyed → `gameKG.markEntity(itemId, 'destroyed', { cause })`
+- Item consumed → `gameKG.markEntity(itemId, 'consumed', { usedBy })`
 
 **On inventory change:**
-- Item picked up → `gameKG.updateEntity(itemId, { ownerId })` + edge update
-- Item dropped → `gameKG.updateEntity(itemId, { locationId })` + edge update
+- Item picked up → `gameKG.updateEntity(itemId, { ownerId })` + new `OWNED_BY` edge
+- Item dropped → `gameKG.updateEntity(itemId, { locationId })` + new `LOCATED_AT` edge
+
+### Append-Only Principle
+
+**Never delete entities or edges from the KG.** The graph is a permanent historical record.
+
+- Death = new edge (`HAS_STATUS: died`), not deletion
+- Item consumed = new edge (`HAS_STATUS: consumed`), not deletion
+- NPC moved = new `LOCATED_AT` edge (old one expires via Graphiti)
+- Malformed/errored entities = only case for actual deletion (admin operation)
+
+Graphiti's built-in edge expiration handles relevance decay — old `LOCATED_AT` edges naturally age out as new ones are created. The entity itself always persists.
 
 ### Flush Timing
 
@@ -132,6 +145,6 @@ Merge to topic kEngram (`ke-topic-{bonfire-id}`) can happen manually or on sched
 - Generate a location → check KG has entity with location name
 - Generate NPCs → check KG has entities with LOCATED_AT edges
 - Move player → check LOCATED_AT edge updated
-- Kill NPC → check entity marked as removed/dead
+- Kill NPC → check entity still exists with new `HAS_STATUS: died` edge
 - Restart server → manifest loads, known entities preserved
 - `bonfire delve "Guard Barracks"` → returns location entity with connected NPCs
