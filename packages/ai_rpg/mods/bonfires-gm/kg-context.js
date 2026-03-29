@@ -7,8 +7,10 @@
  */
 
 class KGContext {
-  constructor(sdk) {
+  constructor(sdk, { gameKG, anchor } = {}) {
     this.sdk = sdk;
+    this.gameKG = gameKG || null; // GameKG instance for name→UUID resolution
+    this.anchor = anchor || null;  // { worldTimeMinutes, windowEnd }
     this.cache = new Map();
     this.cacheTTL = 60_000; // 1 minute
     this.worldEvents = [];
@@ -18,6 +20,19 @@ class KGContext {
     this.prophecies = [];
     this.itemProvenance = new Map(); // itemName → history
     this.latestEpisodeContext = null; // entities + edges from latest episode expansion
+  }
+
+  // --- Center node + time filter helpers ---
+
+  _resolveCenter(name) {
+    if (!name || !this.gameKG) return undefined;
+    return this.gameKG.getByName(name)?.uuid || undefined;
+  }
+
+  _searchOpts(extra = {}) {
+    const opts = { ...extra };
+    if (this.anchor?.windowEnd) opts.windowEnd = this.anchor.windowEnd;
+    return opts;
   }
 
   // --- Cache helpers ---
@@ -96,7 +111,9 @@ class KGContext {
   async refreshWorldLore(regionName) {
     if (!regionName) return;
     this.worldLore = await this.cached(`lore:${regionName}`, async () => {
-      const result = await this.sdk.kg.search(`lore history of ${regionName}`, 8);
+      const centerUuid = this._resolveCenter(regionName);
+      const result = await this.sdk.kg.search(`lore history of ${regionName}`,
+        this._searchOpts({ limit: 8, centerNodeUuid: centerUuid }));
       if (!result) return [];
       const entities = result.entities || result.nodes || [];
       return entities.map(e => ({
@@ -110,9 +127,10 @@ class KGContext {
   async refreshLocationContext(locationName, regionName) {
     if (!locationName) return;
     await this.cached(`location:${locationName}`, async () => {
-      const result = await this.sdk.kg.search(`${locationName} ${regionName}`, 5);
+      const centerUuid = this._resolveCenter(locationName);
+      const result = await this.sdk.kg.search(`${locationName} ${regionName}`,
+        this._searchOpts({ limit: 5, centerNodeUuid: centerUuid }));
       if (!result) return null;
-      // Store as location-specific lore
       const facts = (result.edges || []).map(e => e.fact).filter(Boolean);
       this.cache.set(`locationFacts:${locationName}`, {
         data: facts,
@@ -136,7 +154,9 @@ class KGContext {
       const npcName = npc.name || npcId;
 
       const memories = await this.cached(`npcMem:${npcName}`, async () => {
-        const result = await this.sdk.kg.search(`${npcName} interactions memories`, 6);
+        const centerUuid = this._resolveCenter(npcName);
+        const result = await this.sdk.kg.search(`${npcName} interactions memories`,
+          this._searchOpts({ limit: 6, centerNodeUuid: centerUuid }));
         if (!result) return [];
         const episodes = result.episodes || [];
         return episodes.map(ep => ({
@@ -151,7 +171,8 @@ class KGContext {
 
   async refreshFactionIntel() {
     this.factionIntel = await this.cached('factionIntel', async () => {
-      const result = await this.sdk.kg.search('faction conflict alliance war trade', 8);
+      const result = await this.sdk.kg.search('faction conflict alliance war trade',
+        this._searchOpts({ limit: 8 }));
       if (!result) return [];
       const edges = result.edges || [];
       return edges.map(e => ({

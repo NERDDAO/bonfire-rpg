@@ -40,12 +40,13 @@ function register(scope) {
     agentId: config.agent_id,
   });
 
-  const kg = new KGContext(sdk);
   const gameKG = new GameKG({
     sdk,
     manifestPath: path.join(modDir, 'game-kg-manifest.json'),
     bonfireId: config.bonfire_id,
   });
+
+  const kg = new KGContext(sdk, { gameKG });
 
   // ========================================================
   // STACK PUSH — Rich context from ai_rpg state
@@ -174,7 +175,14 @@ function register(scope) {
 
     // Flush if anything is pending
     if (gameKG.pendingCount > 0) {
-      gameKG.flush().catch(err => console.warn('[game-kg] Flush failed:', err.message));
+      // Flush with world-time context
+      const Globals = require('../../Globals');
+      const worldTimeCtx = Globals.getWorldTimeContext?.() || {};
+      const worldTimeMinutes = Globals.getTotalWorldMinutes?.() || null;
+      gameKG.flush({
+        worldTime: worldTimeCtx.formatted || worldTimeCtx.time || null,
+        worldTimeMinutes,
+      }).catch(err => console.warn('[game-kg] Flush failed:', err.message));
     }
   }
 

@@ -102,11 +102,12 @@ class AgentsService {
 class KGService {
   constructor(client) { this.c = client; }
 
-  async search(query, { bonfireId, limit = 10 } = {}) {
+  async search(query, { bonfireId, limit = 10, centerNodeUuid, windowEnd } = {}) {
     const bid = bonfireId || this.c.bonfireId;
-    return this.c.request('POST', '/delve', {
-      bonfire_id: bid, query, limit,
-    });
+    const body = { bonfire_id: bid, query, num_results: limit };
+    if (centerNodeUuid) body.center_node_uuid = centerNodeUuid;
+    if (windowEnd) body.window_end = windowEnd;
+    return this.c.request('POST', '/delve', body);
   }
 
   async getEntity(uuid, { bonfireId } = {}) {

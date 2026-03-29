@@ -106,10 +106,15 @@ class GameKG {
    * Flush all pending operations to the KG in batch.
    * Returns summary of what was pushed.
    */
-  async flush() {
+  async flush({ worldTime, worldTimeMinutes } = {}) {
     if (!this.sdk?.kg) return { created: 0, updated: 0, edges: 0 };
 
     const results = { created: 0, updated: 0, edges: 0, errors: [] };
+
+    // World-time context for stamping entities
+    const timeAttrs = {};
+    if (worldTime) timeAttrs.worldTime = worldTime;
+    if (worldTimeMinutes != null) timeAttrs.worldTimeMinutes = worldTimeMinutes;
 
     // 1. Create new entities
     for (const entity of this.pending.creates) {
@@ -118,7 +123,7 @@ class GameKG {
           name: entity.name,
           labels: entity.labels,
           summary: entity.summary,
-          attributes: entity.attributes,
+          attributes: { ...entity.attributes, ...timeAttrs },
         });
 
         const uuid = response?.uuid || response?.entity_uuid || null;
@@ -182,7 +187,7 @@ class GameKG {
           sourceUuid,
           targetUuid: targetUuid || sourceUuid,
           edgeName: edge.edgeName,
-          fact: edge.fact,
+          fact: worldTime ? `${edge.fact} [${worldTime}]` : edge.fact,
         });
         results.edges++;
       } catch (err) {
