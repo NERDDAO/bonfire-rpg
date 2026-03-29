@@ -42,8 +42,11 @@ class GameKG {
     if (this.knownEntities.has(gameId)) return; // already in KG
     if (this.pending.creates.some(c => c.gameId === gameId)) return; // already pending
 
-    // Build labels from type + provided
-    const allLabels = [type, ...labels].filter(Boolean);
+    // Build labels from type + provided — sanitize for Neo4j (no spaces, hyphens, parens)
+    const allLabels = [type, ...labels]
+      .filter(Boolean)
+      .map(l => l.replace(/[^a-zA-Z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, ''))
+      .filter(l => l.length > 0);
 
     this.pending.creates.push({
       gameId,
