@@ -7,3 +7,5 @@ __pycache__/
 game_store.json
 .DS_Store
 packages/engine/index.html
+.gitnexus
+.worktrees
