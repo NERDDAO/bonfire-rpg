@@ -72,6 +72,8 @@ const ModLoader = require('./ModLoader.js');
 const { initializeLorebookManager, getLorebookManager } = require('./lorebook.js');
 const { GameInstance } = require('./GameInstance');
 const { BonfireManager } = require('./BonfireManager');
+const { RoundManager } = require('./RoundManager');
+const { MultiplayerHub } = require('./MultiplayerHub');
 
 Globals.baseDir = __dirname;
 Globals.sceneSummaries = new SceneSummaries();
@@ -623,6 +625,20 @@ try {
 const bonfireManager = new BonfireManager();
 const defaultInstance = bonfireManager.create('default', { config });
 Globals.activeInstance = defaultInstance;
+
+const multiplayerHub = new MultiplayerHub();
+const roundManager = new RoundManager({
+    roundWindowMs: config.multiplayer?.round_window_ms || 20000,
+    onRoundClose: (locationId, actions) => {
+        console.log(`[round] Closed round for ${locationId} with ${actions.length} action(s)`);
+        multiplayerHub.broadcastToLocation('default', locationId, {
+            type: 'round_result',
+            locationId,
+            actions,
+            timestamp: Date.now(),
+        });
+    },
+});
 
 function reloadConfigAndDefs() {
     const merged = loadMergedConfig(cliConfigOverridePath);
@@ -25069,6 +25085,8 @@ const apiScope = {
     addJobSubscriber,
     vehicleDebugEnabled: cliVehicleDebug,
     bonfireManager,
+    multiplayerHub,
+    roundManager,
     instance: defaultInstance,
 
 };
@@ -25092,6 +25110,9 @@ defineApiStateProperty('currentTurnToken', () => currentTurnToken, value => { cu
 
 const registerApiRoutes = require('./api');
 registerApiRoutes(apiScope);
+
+const { registerMultiplayerRoutes } = require('./multiplayer-routes');
+registerMultiplayerRoutes(app, { multiplayerHub, roundManager, bonfireManager });
 
 // Load mods synchronously
 console.log('🔧 Loading Mod System...');
