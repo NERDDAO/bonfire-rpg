@@ -7,6 +7,7 @@ import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import { BrowserProvider } from "ethers";
 import { createRoomSocket } from "@/api/ws";
+import useMultiplayerStore from "./multiplayerStore";
 
 async function signForAgent(agentId) {
   if (!window.ethereum) return {};
@@ -38,7 +39,14 @@ const useWsStore = create(
         const socket = createRoomSocket(agentId, {
           signature,
           timestamp,
-          onEvent: (data) => onEvent?.(data),
+          onEvent: (data) => {
+            const multiplayerTypes = ['ooc_chat', 'roster_update', 'round_started', 'round_closed', 'player_death'];
+            if (multiplayerTypes.includes(data.type)) {
+              useMultiplayerStore.getState().handleMultiplayerEvent(data);
+              return;
+            }
+            onEvent?.(data);
+          },
           onOpen: () => set({ connected: true }),
           onClose: () => set({ connected: false, socket: null }),
           onError: () => set({ connected: false }),

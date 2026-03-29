@@ -6,6 +6,10 @@ import PlayerInterface from "../components/UI/PlayerInterface";
 import GameHistory from "../components/UI/GameHistory";
 import Sidebar from "../components/UI/Sidebar";
 import WorldMap from "../map/WorldMap";
+import OOCChat from "../components/UI/OOCChat";
+import RoundTimer from "../components/UI/RoundTimer";
+import PlayerRoster from "../components/UI/PlayerRoster";
+import DeathScreen from "../components/UI/DeathScreen";
 import { useGameStore } from "@/stores/gameStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { useNarrativeStore, WS_EVENT, MSG } from "@/stores/narrativeStore";
@@ -164,7 +168,19 @@ const GamePlay = () => {
   const currentNpcs = npcsByRoom[currentRoom] || [];
   const currentObjects = objectsByRoom[currentRoom] || [];
 
+  const handleOOCSend = (text) => {
+    // TODO: Will be wired to WS/API in future
+    console.log('[ooc] Send:', text);
+  };
+
+  const handlePurchaseLife = () => {
+    // TODO: Will be wired to purchase flow
+    console.log('[death] Purchase new life');
+  };
+
   return (
+    <>
+    <DeathScreen onPurchaseLife={handlePurchaseLife} />
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 lg:gap-6">
       <div className="lg:col-span-3 space-y-4">
         {/* Room header */}
@@ -206,6 +222,8 @@ const GamePlay = () => {
           </div>
         )}
 
+        <RoundTimer />
+
         <GameHistory chatEndRef={chatEndRef} />
 
         <div className="bg-gray-900 rounded-2xl p-3 sm:p-4 border border-amber-900/20">
@@ -238,12 +256,16 @@ const GamePlay = () => {
             <span className="ml-auto text-gray-500 truncate max-w-[200px] sm:max-w-xs">GM: {lastGmReaction.slice(0, 80)}</span>
           )}
         </div>
+
+        <OOCChat onSend={handleOOCSend} />
       </div>
 
-      <div className="hidden lg:block">
+      <div className="hidden lg:block space-y-4">
+        <PlayerRoster />
         <Sidebar bonfireId={bonfireId} room={currentRoomData} npcs={currentNpcs} objects={currentObjects} />
       </div>
     </div>
+    </>
   );
 };
 
