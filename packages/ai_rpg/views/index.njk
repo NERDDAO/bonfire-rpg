@@ -240,6 +240,17 @@
                                 </div>
                             </div>
 
+                            <div class="chat-ooc-panel">
+                                <div class="chat-ooc-header">
+                                    <h3 class="mp-section-label" style="margin:0">💬 OOC</h3>
+                                </div>
+                                <div class="chat-ooc-messages" id="mpOOCMessages"></div>
+                                <div class="chat-ooc-input-area">
+                                    <input type="text" class="chat-ooc-input" id="oocInput" placeholder="Chat with players..." autocomplete="off">
+                                    <button type="button" class="chat-ooc-send" id="oocSendBtn">Send</button>
+                                </div>
+                            </div>
+
                             <aside class="chat-sidebar" aria-label="Player and party overview">
                                 <section class="mp-roster" id="mpRoster" hidden>
                                     <h3 class="mp-section-label">Players</h3>
@@ -294,19 +305,7 @@
                             </aside>
                         </div>
 
-                        <div class="mp-ooc" id="mpOOC" hidden>
-                            <button class="mp-ooc-toggle" id="mpOOCToggle" type="button" aria-expanded="false">
-                                <span class="mp-section-label" style="margin:0">OOC Chat</span>
-                                <span class="mp-ooc-badge" id="mpOOCBadge" hidden>0</span>
-                            </button>
-                            <div class="mp-ooc-panel" id="mpOOCPanel" hidden>
-                                <div class="mp-ooc-messages" id="mpOOCMessages"></div>
-                                <form class="mp-ooc-form" id="mpOOCForm">
-                                    <input type="text" class="mp-ooc-input" id="mpOOCInput" placeholder="Say something OOC..." autocomplete="off">
-                                    <button type="submit" class="mp-ooc-send">Send</button>
-                                </form>
-                            </div>
-                        </div>
+                        {# OOC chat merged into unified chat panel above #}
                     </div>
                 </section>
 

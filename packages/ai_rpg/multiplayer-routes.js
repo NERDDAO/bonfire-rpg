@@ -54,16 +54,33 @@ function registerMultiplayerRoutes(app, { multiplayerHub, roundManager, bonfireM
     });
   });
 
-  // Send OOC message
-  app.post('/api/mp/:bonfireId/ooc', (req, res) => {
+  // Send OOC message (proxied through bot to Matrix)
+  app.post('/api/mp/:bonfireId/ooc', async (req, res) => {
     const { bonfireId } = req.params;
-    const { playerId, text } = req.body;
+    const { playerId, playerName, text } = req.body;
 
-    if (!playerId || !text) {
-      return res.status(400).json({ error: 'playerId and text are required' });
+    if (!text) {
+      return res.status(400).json({ error: 'text is required' });
     }
 
-    multiplayerHub.broadcastOOC(bonfireId, playerId, text);
+    const name = playerName || playerId || 'Anonymous';
+
+    // Broadcast to in-game WebSocket clients
+    multiplayerHub.broadcastOOC(bonfireId, playerId || 'anon', text);
+
+    // Proxy to Matrix via bot (posts as bot with player name prefix)
+    if (matrixNarrator) {
+      const bonfire = matrixNarrator.bonfires.get(bonfireId);
+      if (bonfire?.globalOOCRoomId) {
+        matrixNarrator.client.sendMessage(bonfire.globalOOCRoomId, {
+          msgtype: 'm.text',
+          body: `[${name}] ${text}`,
+          format: 'org.matrix.custom.html',
+          formatted_body: `<strong>${matrixNarrator._esc(name)}</strong> ${matrixNarrator._esc(text)}`,
+        }).catch(err => console.warn('[matrix] OOC proxy failed:', err.message));
+      }
+    }
+
     res.json({ success: true });
   });
 

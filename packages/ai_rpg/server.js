@@ -25162,18 +25162,18 @@ defineApiStateProperty('chatHistory', () => chatHistory, value => { chatHistory 
 defineApiStateProperty('isProcessingJob', () => isProcessingJob, value => { isProcessingJob = value; });
 defineApiStateProperty('currentTurnToken', () => currentTurnToken, value => { currentTurnToken = value; });
 
-const registerApiRoutes = require('./api');
-registerApiRoutes(apiScope);
-
-const { registerMultiplayerRoutes } = require('./multiplayer-routes');
-registerMultiplayerRoutes(app, { multiplayerHub, roundManager, bonfireManager, matrixNarrator });
-
-// Load mods synchronously
+// Load mods BEFORE api routes so mod middleware (e.g. /api/chat intercept) registers first
 console.log('🔧 Loading Mod System...');
 const modLoadResults = modLoader.loadMods(apiScope);
 if (modLoadResults.failed.length > 0) {
     console.warn(`⚠️  ${modLoadResults.failed.length} mod(s) failed to load.`);
 }
+
+const registerApiRoutes = require('./api');
+registerApiRoutes(apiScope);
+
+const { registerMultiplayerRoutes } = require('./multiplayer-routes');
+registerMultiplayerRoutes(app, { multiplayerHub, roundManager, bonfireManager, matrixNarrator });
 
 if (typeof module !== 'undefined' && module.exports) {
     module.exports.performGameSave = (...args) => apiScope.performGameSave(...args);

@@ -45,25 +45,43 @@ function register(scope) {
   // STACK PUSH — Rich context from ai_rpg state
   // ========================================================
 
-  app.use('/api/chat', (req, res, next) => {
-    if (req.method !== 'POST') return next();
-    const originalJson = res.json.bind(res);
-    res.json = function (data) {
-      setImmediate(() => pushToStack(req.body));
-      return originalJson(data);
-    };
-    next();
-  });
+  // Poll chatHistory for new messages and push to stack + Matrix
+  let lastChatHistoryLength = 0;
 
-  async function pushToStack(requestBody) {
+  setInterval(() => {
+    const history = scope.chatHistory || [];
+    if (history.length <= lastChatHistoryLength) return;
+
+    // Process new messages since last check
+    const newMessages = history.slice(lastChatHistoryLength);
+    lastChatHistoryLength = history.length;
+
+    // Find the latest user + assistant pair
+    let lastUser = null;
+    let lastAssistant = null;
+    for (const msg of newMessages) {
+      if (msg.role === 'user') lastUser = msg;
+      if (msg.role === 'assistant') lastAssistant = msg;
+    }
+
+    if (lastUser || lastAssistant) {
+      pushToStack(
+        lastUser ? { playerMessage: lastUser.content } : {},
+        lastAssistant ? lastAssistant.content : ''
+      );
+    }
+  }, 2000); // Check every 2 seconds
+
+  async function pushToStack(requestBody, aiResponseOverride) {
     const playerMessage = requestBody?.playerMessage || '';
     if (!playerMessage) return;
 
     const player = scope.currentPlayer;
     if (!player) return;
 
-    const location = player.currentLocation;
-    const region = location ? scope.findRegionByLocationId?.(location.id) : null;
+    const locationId = player.currentLocation;
+    const location = locationId ? gameLocations.get(locationId) : null;
+    const region = location ? scope.findRegionByLocationId?.(locationId) : null;
 
     // Build rich context summary
     const parts = [`[${config.player_name || player.name}]`];
@@ -105,13 +123,17 @@ function register(scope) {
     parts.push(`Action: ${playerMessage}`);
     const userText = parts.join(' | ');
 
-    // Get narrator response
-    let aiResponse = '';
-    const history = scope.chatHistory || [];
-    for (let i = history.length - 1; i >= 0; i--) {
-      if (history[i]?.role === 'assistant') {
-        aiResponse = (history[i].content || '').slice(0, 500);
-        break;
+    // Get narrator response — full text for Matrix, truncated for stack
+    let aiResponseFull = '';
+    if (aiResponseOverride && typeof aiResponseOverride === 'string') {
+      aiResponseFull = aiResponseOverride;
+    } else {
+      const history = scope.chatHistory || [];
+      for (let i = history.length - 1; i >= 0; i--) {
+        if (history[i]?.role === 'assistant') {
+          aiResponseFull = history[i].content || '';
+          break;
+        }
       }
     }
 
@@ -121,10 +143,28 @@ function register(scope) {
     try {
       await sdk.agents.stackAdd([
         { text: userText, userId: 'game-player', chatId, timestamp: now, role: 'user' },
-        { text: aiResponse || 'Action processed.', userId: `agent:${config.agent_id}`, chatId, timestamp: now, role: 'assistant' },
+        { text: aiResponseFull || 'Action processed.', userId: `agent:${config.agent_id}`, chatId, timestamp: now, role: 'assistant' },
       ], { paired: true });
     } catch (err) {
       console.error('[bonfires-gm] Stack push failed:', err.message);
+    }
+
+    // Post FULL narration to Matrix location room
+    const matrixNarrator = scope.matrixNarrator;
+    if (matrixNarrator && locationId && location?.name) {
+      const locationName = location.name;
+      const pName = config.player_name || player.name || 'Player';
+
+      // Post player action and full AI response as separate messages
+      matrixNarrator.postNarration('default', locationId, locationName,
+        `**[${pName}]** ${playerMessage}`
+      ).catch(err => console.warn('[bonfires-gm] Matrix player action post failed:', err.message));
+
+      if (aiResponseFull) {
+        matrixNarrator.postNarration('default', locationId, locationName,
+          aiResponseFull
+        ).catch(err => console.warn('[bonfires-gm] Matrix narration post failed:', err.message));
+      }
     }
   }
 

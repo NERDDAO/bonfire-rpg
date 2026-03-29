@@ -4,6 +4,7 @@
 
   const BONFIRE_ID = 'default'; // TODO: make configurable
   let playerId = null;
+  let playerName = null;
   let oocUnread = 0;
   let roundTimerInterval = null;
   let matrixChat = null;
@@ -36,62 +37,45 @@
     div.className = 'mp-ooc-msg';
     div.innerHTML = `<span class="mp-ooc-msg-name">${esc(from)}</span> <span class="mp-ooc-msg-text">${esc(text)}</span>`;
     el.appendChild(div);
-    el.scrollTop = el.scrollHeight;
 
-    // Update badge if panel is closed
-    const panel = document.getElementById('mpOOCPanel');
-    if (panel && panel.hidden) {
-      oocUnread++;
-      const badge = document.getElementById('mpOOCBadge');
-      if (badge) {
-        badge.textContent = oocUnread;
-        badge.hidden = false;
-      }
-    }
+    // Scroll the OOC log container
+    const oocLog = document.getElementById('chatLogOOC');
+    if (oocLog) oocLog.scrollTop = oocLog.scrollHeight;
   }
 
-  function initOOC() {
-    const toggle = document.getElementById('mpOOCToggle');
-    const panel = document.getElementById('mpOOCPanel');
-    const form = document.getElementById('mpOOCForm');
-    const input = document.getElementById('mpOOCInput');
-    const container = document.getElementById('mpOOC');
+  function initOOCPanel() {
+    const input = document.getElementById('oocInput');
+    const sendBtn = document.getElementById('oocSendBtn');
+    if (!input || !sendBtn) return;
 
-    if (!toggle || !panel || !container) return;
-    container.hidden = false;
+    function sendOOC() {
+      const text = input.value.trim();
+      if (!text) return;
 
-    toggle.addEventListener('click', () => {
-      panel.hidden = !panel.hidden;
-      toggle.setAttribute('aria-expanded', !panel.hidden);
-      if (!panel.hidden) {
-        oocUnread = 0;
-        const badge = document.getElementById('mpOOCBadge');
-        if (badge) badge.hidden = true;
-        input?.focus();
+      addOOCMessage('You', text);
+
+      if (matrixChat && matrixOOCRoomId) {
+        matrixChat.sendMessage(matrixOOCRoomId, text).catch(err => {
+          console.warn('[ooc] Matrix send failed:', err.message);
+        });
+      } else {
+        fetch(`/api/mp/${BONFIRE_ID}/ooc`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerId: playerId || 'anon', playerName: playerName || 'Player', text }),
+        });
+      }
+      input.value = '';
+      input.focus();
+    }
+
+    sendBtn.addEventListener('click', sendOOC);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendOOC();
       }
     });
-
-    if (form && input) {
-      form.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const text = input.value.trim();
-        if (!text) return;
-
-        // Use Matrix if connected, otherwise fallback to custom API
-        if (matrixChat && matrixOOCRoomId) {
-          matrixChat.sendMessage(matrixOOCRoomId, text).catch(err => {
-            console.warn('[ooc] Matrix send failed:', err.message);
-          });
-        } else if (playerId) {
-          fetch(`/api/mp/${BONFIRE_ID}/ooc`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ playerId, text }),
-          });
-        }
-        input.value = '';
-      });
-    }
   }
 
   // --- Round Timer ---
@@ -202,7 +186,7 @@
 
   // --- Init ---
   function init() {
-    initOOC();
+    initOOCPanel();
     // Expose to global for WS integration + Matrix
     window.multiplayerUI = {
       handleEvent: handleMultiplayerEvent,
@@ -212,6 +196,7 @@
       hideRoundTimer,
       showDeathScreen,
       setPlayerId: (id) => { playerId = id; },
+      setPlayerName: (name) => { playerName = name; },
       connectMatrix,
       disconnectMatrix,
       getMatrixChat: () => matrixChat,

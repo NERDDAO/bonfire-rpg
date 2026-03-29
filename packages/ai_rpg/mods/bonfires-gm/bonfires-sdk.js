@@ -136,9 +136,18 @@ class KGService {
     });
   }
 
-  async getEpisodes({ bonfireId, limit = 20 } = {}) {
+  async getEpisodes({ agentId, limit = 20 } = {}) {
+    const aid = agentId || this.c.agentId;
+    return this.c.request('GET', `/knowledge_graph/agents/${encodeURIComponent(aid)}/episodes/latest`);
+  }
+
+  async expandEpisodes(episodeUuids, { bonfireId, limit = 30 } = {}) {
     const bid = bonfireId || this.c.bonfireId;
-    return this.c.request('GET', `/bonfires/${encodeURIComponent(bid)}/episodes?limit=${limit}`);
+    return this.c.request('POST', '/knowledge_graph/episodes/expand', {
+      episode_uuids: episodeUuids,
+      bonfire_id: bid,
+      limit,
+    });
   }
 }
 

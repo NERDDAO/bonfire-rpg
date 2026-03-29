@@ -17,6 +17,7 @@ class KGContext {
     this.factionIntel = [];
     this.prophecies = [];
     this.itemProvenance = new Map(); // itemName → history
+    this.latestEpisodeContext = null; // entities + edges from latest episode expansion
   }
 
   // --- Cache helpers ---
@@ -59,11 +60,36 @@ class KGContext {
     this.worldEvents = await this.cached('worldEvents', async () => {
       const data = await this.sdk.kg.getEpisodes({ limit: 15 });
       const episodes = data?.episodes || [];
-      return episodes.map(ep => ({
+      const mapped = episodes.map(ep => ({
         summary: ep.summary || ep.name || '',
         timestamp: ep.created_at || ep.timestamp || '',
         agent: ep.agent_id || '',
+        uuid: ep.uuid || ep.episode_uuid || '',
       })).filter(e => e.summary);
+
+      // Expand from the latest episode to get connected entities
+      if (mapped.length > 0 && mapped[0].uuid) {
+        try {
+          const expanded = await this.sdk.kg.expandEpisodes([mapped[0].uuid], { limit: 20 });
+          this.latestEpisodeContext = {
+            entities: (expanded?.entities || expanded?.nodes || []).map(e => ({
+              name: e.name || '',
+              summary: e.summary || '',
+              labels: e.labels || [],
+            })).filter(e => e.summary),
+            edges: (expanded?.edges || []).map(e => ({
+              fact: e.fact || '',
+              source: e.source_name || '',
+              target: e.target_name || '',
+            })).filter(e => e.fact),
+          };
+        } catch (err) {
+          console.warn('[kg-context] Episode expansion failed:', err.message);
+          this.latestEpisodeContext = null;
+        }
+      }
+
+      return mapped;
     }) || [];
   }
 
@@ -264,7 +290,28 @@ class KGContext {
         '\n</propheciesAndOmens>');
     }
 
+    // Context from latest episode expansion (most recent game events and their connected entities)
+    if (this.latestEpisodeContext) {
+      const { entities, edges } = this.latestEpisodeContext;
+      if (entities.length > 0 || edges.length > 0) {
+        let block = '<recentWorldContext>\n';
+        for (const e of entities.slice(0, 5)) {
+          block += `  <entity name="${e.name}">${e.summary}</entity>\n`;
+        }
+        for (const e of edges.slice(0, 5)) {
+          block += `  <fact>${e.source} → ${e.target}: ${e.fact}</fact>\n`;
+        }
+        block += '</recentWorldContext>';
+        sections.push(block);
+      }
+    }
+
     return sections.join('\n\n');
+  }
+
+  // Get the latest episode context (entities + edges expanded from most recent episode)
+  getLatestEpisodeContext() {
+    return this.latestEpisodeContext;
   }
 }
 
