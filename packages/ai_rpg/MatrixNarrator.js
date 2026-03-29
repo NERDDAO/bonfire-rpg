@@ -79,30 +79,35 @@ class MatrixNarrator {
       preset: 'public_chat',
     });
 
-    // Create OOC room
-    const oocRoomId = await this._createChildRoom(spaceId, {
-      name: `${spaceName} — OOC`,
-      topic: 'Out-of-character chat. No token cost.',
-    });
-
-    // Create death feed room (read-only for non-bot)
+    // Create death feed room (public, world-readable)
     const deathFeedRoomId = await this._createChildRoom(spaceId, {
       name: `${spaceName} — Death Feed`,
       topic: 'Here lie the fallen. Every death, every legend.',
     });
 
+    // Global OOC room — general chat across the whole bonfire (no game actions)
+    const globalOOCRoomId = await this._createChildRoom(spaceId, {
+      name: `${spaceName} — General`,
+      topic: 'General chat for all players. No game actions here.',
+    });
+
+    // Location rooms are created on-demand as players explore.
+    // Each location room is both chat AND game — regular messages are OOC,
+    // prefixed messages (/do, /say, /attack) are IC actions that trigger rounds.
+    // Players only get invited to the room they're currently in.
+
     const bonfireData = {
       spaceId,
-      oocRoomId,
+      globalOOCRoomId,
       deathFeedRoomId,
       locationRooms: new Map(),
     };
     this.bonfires.set(bonfireId, bonfireData);
-    this.roomToBonfire.set(oocRoomId, { bonfireId, type: 'ooc' });
+    this.roomToBonfire.set(globalOOCRoomId, { bonfireId, type: 'global-ooc' });
     this.roomToBonfire.set(deathFeedRoomId, { bonfireId, type: 'death-feed' });
 
     console.log(`[matrix] Created bonfire space ${spaceName} (${spaceId})`);
-    return { spaceId, oocRoomId, deathFeedRoomId };
+    return { spaceId, deathFeedRoomId };
   }
 
   /**
@@ -200,7 +205,8 @@ class MatrixNarrator {
   }
 
   /**
-   * Invite a player to the bonfire space + OOC room
+   * Invite a player to the bonfire (space + global OOC + death feed only).
+   * Location rooms are joined/left as the player travels.
    */
   async invitePlayer(bonfireId, matrixUserId) {
     const bonfire = this.bonfires.get(bonfireId);
@@ -208,11 +214,38 @@ class MatrixNarrator {
 
     try {
       await this.client.inviteUser(matrixUserId, bonfire.spaceId);
-      await this.client.inviteUser(matrixUserId, bonfire.oocRoomId);
+      await this.client.inviteUser(matrixUserId, bonfire.globalOOCRoomId);
       await this.client.inviteUser(matrixUserId, bonfire.deathFeedRoomId);
       console.log(`[matrix] Invited ${matrixUserId} to bonfire ${bonfireId}`);
     } catch (err) {
       console.warn(`[matrix] Failed to invite ${matrixUserId}:`, err.message);
+    }
+  }
+
+  /**
+   * Move a player between location rooms (leave old, join new).
+   * Called when player travels to a new location.
+   */
+  async movePlayerToLocation(bonfireId, matrixUserId, newLocationId, newLocationName, oldLocationId) {
+    const bonfire = this.bonfires.get(bonfireId);
+    if (!bonfire) return;
+
+    // Leave old location room
+    if (oldLocationId && bonfire.locationRooms.has(oldLocationId)) {
+      const oldRoomId = bonfire.locationRooms.get(oldLocationId);
+      try {
+        await this.client.kickUser(matrixUserId, oldRoomId, 'Moved to another location');
+      } catch (err) {
+        // May not have permission or already left
+      }
+    }
+
+    // Join new location room
+    const newRoomId = await this.getLocationRoom(bonfireId, newLocationId, newLocationName);
+    try {
+      await this.client.inviteUser(matrixUserId, newRoomId);
+    } catch (err) {
+      // May already be joined
     }
   }
 
