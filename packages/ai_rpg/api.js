@@ -25,6 +25,12 @@ const {
 const e = require('express');
 const { getLorebookManager } = require('./lorebook.js');
 const console = require('console');
+const { playerAction, slopRemover, plotSummary, plotExpander, gameIntro, supplementalStoryInfo, batchSummary, craftPlayerAction } = require('./handlers/narrative.js');
+const { attackPrecheck, attackCheck, plausibilityCheck, dispositionCheck } = require('./handlers/combat.js');
+const { factionAutofill } = require('./handlers/faction.js');
+const { randomEvent } = require('./handlers/event.js');
+const { aiGenerateObject, aiGenerateText } = require('./ai.js');
+const { CalendarSchema } = require('./schemas/calendar.js');
 
 const INFORMATION_GATHERING_CHAT_TOOL_NAMES = new Set([
     'moreInfo',
@@ -1047,16 +1053,10 @@ module.exports = function registerApiRoutes(scope) {
                         { role: 'user', content: promptData.generationPrompt }
                     ];
 
-                    slopResponse = await LLMClient.chatCompletion({
-                        messages,
-                        metadataLabel: 'slop_remover',
-                        validateXML: false
-                    });
+                    slopResponse = await slopRemover({ messages });
 
                     if (typeof slopResponse !== 'string') {
                         parseFailure = 'non-text response';
-                    } else if (/<\/?[a-z][^>]*>/i.test(slopResponse)) {
-                        parseFailure = 'XML detected in response';
                     } else if (!slopResponse.trim()) {
                         parseFailure = 'empty response';
                     }
@@ -1441,70 +1441,7 @@ module.exports = function registerApiRoutes(scope) {
                 .trim();
         }
 
-        async function repairMalformedPlayerActionXml(xmlPayload, { firstFatalError = '' } = {}) {
-            let promptData = null;
-            let xmlFixResponse = '';
-            let repairFailure = null;
-
-            try {
-                const rendered = promptEnv.render('xml-fix.xml.njk', {
-                    xmlToFix: xmlPayload,
-                    firstFatalError: firstFatalError || 'Unknown XML parse error.'
-                });
-                promptData = parseXMLTemplate(rendered);
-                if (!promptData?.systemPrompt || !promptData?.generationPrompt) {
-                    throw new Error('xml-fix template did not produce prompts.');
-                }
-
-                const requestOptions = {
-                    messages: [
-                        { role: 'system', content: promptData.systemPrompt },
-                        { role: 'user', content: promptData.generationPrompt }
-                    ],
-                    metadataLabel: 'xml_fix',
-                    validateXML: false,
-                    requiredRegex: playerActionProseRegex
-                };
-                if (typeof promptData.temperature === 'number') {
-                    requestOptions.temperature = promptData.temperature;
-                }
-
-                xmlFixResponse = await LLMClient.chatCompletion(requestOptions);
-                if (typeof xmlFixResponse !== 'string' || !xmlFixResponse.trim()) {
-                    throw new Error('xml-fix returned an empty response.');
-                }
-
-                const fixedXmlPayload = stripToXmlPayload(xmlFixResponse);
-                if (!fixedXmlPayload) {
-                    throw new Error('xml-fix response missing XML content.');
-                }
-                return fixedXmlPayload;
-            } catch (error) {
-                repairFailure = error?.message || 'Unknown xml-fix failure.';
-                throw error;
-            } finally {
-                const sections = [
-                    {
-                        title: 'FIRST FATAL ERROR',
-                        content: firstFatalError || 'Unknown XML parse error.'
-                    }
-                ];
-                if (repairFailure) {
-                    sections.push({
-                        title: 'Repair Status',
-                        content: `failed: ${repairFailure}`
-                    });
-                }
-                LLMClient.logPrompt({
-                    prefix: 'xml_fix',
-                    metadataLabel: 'xml_fix',
-                    systemPrompt: promptData?.systemPrompt || '',
-                    generationPrompt: promptData?.generationPrompt || '',
-                    response: xmlFixResponse,
-                    sections
-                });
-            }
-        }
+        // xml_fix removed — structured output eliminates XML parsing/repair
 
         async function parsePlayerActionProseFromXml(rawResponse, { logJson = false } = {}) {
             if (typeof rawResponse !== 'string') {
@@ -2719,32 +2656,17 @@ module.exports = function registerApiRoutes(scope) {
                     return null;
                 }
 
-                const requestOptions = {
-                    messages: [
-                        { role: 'system', content: parsedTemplate.systemPrompt },
-                        { role: 'user', content: parsedTemplate.generationPrompt }
-                    ],
-                    metadataLabel: 'plot_summary',
-                    validateXML: false,
-                    runInBackground: true
-                };
+                const messages = [
+                    { role: 'system', content: parsedTemplate.systemPrompt },
+                    { role: 'user', content: parsedTemplate.generationPrompt }
+                ];
 
+                const overrides = {};
                 if (typeof parsedTemplate.temperature === 'number') {
-                    requestOptions.temperature = parsedTemplate.temperature;
+                    overrides.temperature = parsedTemplate.temperature;
                 }
 
-                const rawResponse = await LLMClient.chatCompletion(requestOptions);
-                LLMClient.logPrompt({
-                    prefix: 'plot_summary',
-                    metadataLabel: 'plot_summary',
-                    systemPrompt: parsedTemplate.systemPrompt || '',
-                    generationPrompt: parsedTemplate.generationPrompt || '',
-                    response: rawResponse || '',
-                    model: requestOptions.model,
-                    endpoint: requestOptions.endpoint
-                });
-
-                const plotSummaryText = typeof rawResponse === 'string' ? rawResponse.trim() : '';
+                const plotSummaryText = (await plotSummary({ messages, ...overrides }) || '').trim();
                 if (!plotSummaryText) {
                     console.warn('Plot summary response was empty.');
                     return null;
@@ -2807,32 +2729,17 @@ module.exports = function registerApiRoutes(scope) {
                     return null;
                 }
 
-                const requestOptions = {
-                    messages: [
-                        { role: 'system', content: parsedTemplate.systemPrompt },
-                        { role: 'user', content: parsedTemplate.generationPrompt }
-                    ],
-                    metadataLabel: 'plot_expander',
-                    validateXML: false,
-                    runInBackground: true
-                };
+                const messages = [
+                    { role: 'system', content: parsedTemplate.systemPrompt },
+                    { role: 'user', content: parsedTemplate.generationPrompt }
+                ];
 
+                const overrides = {};
                 if (typeof parsedTemplate.temperature === 'number') {
-                    requestOptions.temperature = parsedTemplate.temperature;
+                    overrides.temperature = parsedTemplate.temperature;
                 }
 
-                const rawResponse = await LLMClient.chatCompletion(requestOptions);
-                LLMClient.logPrompt({
-                    prefix: 'plot_expander',
-                    metadataLabel: 'plot_expander',
-                    systemPrompt: parsedTemplate.systemPrompt || '',
-                    generationPrompt: parsedTemplate.generationPrompt || '',
-                    response: rawResponse || '',
-                    model: requestOptions.model,
-                    endpoint: requestOptions.endpoint
-                });
-
-                const plotExpanderText = typeof rawResponse === 'string' ? rawResponse.trim() : '';
+                const plotExpanderText = (await plotExpander({ messages, ...overrides }) || '').trim();
                 if (!plotExpanderText) {
                     console.warn('Plot expander response was empty.');
                     return null;
@@ -2890,31 +2797,18 @@ module.exports = function registerApiRoutes(scope) {
                     return null;
                 }
 
-                const requestOptions = {
-                    messages: [
-                        { role: 'system', content: parsedTemplate.systemPrompt },
-                        { role: 'user', content: parsedTemplate.generationPrompt }
-                    ],
-                    metadataLabel: 'supplemental_story_info',
-                    validateXML: false
-                };
+                const messages = [
+                    { role: 'system', content: parsedTemplate.systemPrompt },
+                    { role: 'user', content: parsedTemplate.generationPrompt }
+                ];
 
+                const overrides = {};
                 if (typeof parsedTemplate.temperature === 'number') {
-                    requestOptions.temperature = parsedTemplate.temperature;
+                    overrides.temperature = parsedTemplate.temperature;
                 }
 
-                const rawResponse = await LLMClient.chatCompletion(requestOptions);
-                LLMClient.logPrompt({
-                    prefix: 'supplemental_story_info',
-                    metadataLabel: 'supplemental_story_info',
-                    systemPrompt: parsedTemplate.systemPrompt || '',
-                    generationPrompt: parsedTemplate.generationPrompt || '',
-                    response: rawResponse || '',
-                    model: requestOptions.model,
-                    endpoint: requestOptions.endpoint
-                });
-
-                const storyNotes = parseSupplementalStoryInfoResponse(rawResponse);
+                const storyInfoResult = await supplementalStoryInfo({ messages, ...overrides });
+                const storyNotes = storyInfoResult?.storyNotes || '';
                 if (!storyNotes) {
                     console.warn('Supplemental story info response was empty.');
                     return null;
@@ -2963,31 +2857,17 @@ module.exports = function registerApiRoutes(scope) {
                 throw new Error('Game intro template missing prompts.');
             }
 
-            const requestOptions = {
-                messages: [
-                    { role: 'system', content: parsedTemplate.systemPrompt },
-                    { role: 'user', content: parsedTemplate.generationPrompt }
-                ],
-                metadataLabel: 'game_intro',
-                validateXML: false
-            };
+            const messages = [
+                { role: 'system', content: parsedTemplate.systemPrompt },
+                { role: 'user', content: parsedTemplate.generationPrompt }
+            ];
 
+            const overrides = {};
             if (typeof parsedTemplate.temperature === 'number') {
-                requestOptions.temperature = parsedTemplate.temperature;
+                overrides.temperature = parsedTemplate.temperature;
             }
 
-            const rawResponse = await LLMClient.chatCompletion(requestOptions);
-            LLMClient.logPrompt({
-                prefix: 'game_intro',
-                metadataLabel: 'game_intro',
-                systemPrompt: parsedTemplate.systemPrompt || '',
-                generationPrompt: parsedTemplate.generationPrompt || '',
-                response: rawResponse || '',
-                model: requestOptions.model,
-                endpoint: requestOptions.endpoint
-            });
-
-            let introText = parseGameIntroResponse(rawResponse);
+            let introText = (await gameIntro({ messages, ...overrides }) || '').trim();
             let slopRemovalInfo = null;
             if (Globals.config?.slop_buster === true && introText.trim()) {
                 const slopResult = await applySlopRemoval(introText, { returnDiagnostics: true });
@@ -5103,26 +4983,22 @@ module.exports = function registerApiRoutes(scope) {
 
             const requestStart = Date.now();
             try {
-                const requestOptions = {
-                    messages,
-                    metadataLabel: 'summarize_batch',
-                    runInBackground: true
-                };
-
+                const overrides = {};
                 if (typeof parsedTemplate.temperature === 'number') {
-                    requestOptions.temperature = parsedTemplate.temperature;
+                    overrides.temperature = parsedTemplate.temperature;
                 }
 
-                const summaryResponse = await LLMClient.chatCompletion(requestOptions);
+                const batchResult = await batchSummary({ messages, ...overrides });
                 const durationSeconds = (Date.now() - requestStart) / 1000;
-                LLMClient.logPrompt({
-                    prefix: requestOptions.metadataLabel,
-                    metadataLabel: requestOptions.metadataLabel,
-                    systemPrompt: messages[0]?.content || parsedTemplate.systemPrompt || '',
-                    generationPrompt: parsedTemplate.generationPrompt || '',
-                    response: summaryResponse || ''
-                });
-                const parsedSummaries = parseBatchSummaryResponse(summaryResponse, batch.length);
+                const parsedSummaries = new Map();
+                if (batchResult?.summaries && Array.isArray(batchResult.summaries)) {
+                    for (const entry of batchResult.summaries) {
+                        const idx = entry?.number;
+                        if (Number.isInteger(idx) && idx > 0 && typeof entry.text === 'string') {
+                            parsedSummaries.set(idx - 1, entry.text.trim());
+                        }
+                    }
+                }
 
                 batch.forEach((item, index) => {
                     const summaryText = parsedSummaries.get(index) || null;
@@ -7860,40 +7736,25 @@ module.exports = function registerApiRoutes(scope) {
                 }
 
                 const start = Date.now();
-                const requestOptions = {
-                    messages,
-                    metadataLabel: 'random_event',
-                    validateXML: false,
-                };
+                const overrides = {};
 
                 if (typeof parsedTemplate.temperature === 'number') {
-                    requestOptions.temperature = parsedTemplate.temperature;
-                }
-                if (Globals.config?.repetition_buster) {
-                    requestOptions.requiredRegex = playerActionProseRegex;
+                    overrides.temperature = parsedTemplate.temperature;
                 }
 
-                const rawResponse = await LLMClient.chatCompletion(requestOptions);
+                const parsedResponse = await randomEvent({ messages, ...overrides });
                 const durationSeconds = (Date.now() - start) / 1000;
                 logRandomEventPrompt({
                     rarity,
                     eventText: trimmedEventText,
                     systemPrompt: parsedTemplate.systemPrompt,
                     generationPrompt: parsedTemplate.generationPrompt,
-                    responseText: rawResponse,
+                    responseText: JSON.stringify(parsedResponse),
                     durationSeconds
                 });
 
-                const parsedResponse = parseRandomEventResponse(rawResponse);
                 let travelProsePayload = null;
-                let narrativeText = '';
-                if (Globals.config?.repetition_buster) {
-                    const parsedProse = await parsePlayerActionProseFromXml(rawResponse, { logJson: true });
-                    narrativeText = parsedProse.prose;
-                    travelProsePayload = parsedProse.travel;
-                } else {
-                    narrativeText = (parsedResponse?.eventText || rawResponse || '').trim();
-                }
+                let narrativeText = (parsedResponse?.eventText || '').trim();
                 const isAttack = Boolean(parsedResponse?.isAttack);
 
                 if (!narrativeText) {
@@ -8633,34 +8494,23 @@ module.exports = function registerApiRoutes(scope) {
                     { role: 'user', content: parsedTemplate.generationPrompt }
                 ];
 
-                const requestOptions = {
-                    messages,
-                    metadataLabel: 'attack_check'
-                };
-
+                const overrides = {};
                 if (typeof parsedTemplate.temperature === 'number') {
-                    requestOptions.temperature = parsedTemplate.temperature;
+                    overrides.temperature = parsedTemplate.temperature;
                 }
 
-                const attackResponse = await LLMClient.chatCompletion(requestOptions);
+                const structured = await attackCheck({ messages, ...overrides });
 
-                LLMClient.logPrompt({
-                    prefix: 'attack_check',
-                    metadataLabel: 'attack_check',
-                    systemPrompt: parsedTemplate.systemPrompt,
-                    generationPrompt: parsedTemplate.generationPrompt,
-                    response: attackResponse
-                });
-
-                if (!attackResponse.trim()) {
+                if (!structured) {
                     return null;
                 }
 
-                const safeResponse = Events.escapeHtml(attackResponse.trim());
+                const rawSummary = JSON.stringify(structured);
+                const safeResponse = Events.escapeHtml(rawSummary);
                 return {
-                    raw: attackResponse,
+                    raw: rawSummary,
                     html: safeResponse.replace(/\n/g, '<br>'),
-                    structured: parseAttackCheckResponse(attackResponse)
+                    structured
                 };
             } catch (error) {
                 console.warn('Attack check failed:', error.message);
@@ -8699,42 +8549,20 @@ module.exports = function registerApiRoutes(scope) {
                     { role: 'user', content: parsedTemplate.generationPrompt }
                 ];
 
-                const requestOptions = {
-                    messages,
-                    metadataLabel: 'attack_precheck'
-                };
-
+                const overrides = {};
                 if (typeof parsedTemplate.temperature === 'number') {
-                    requestOptions.temperature = parsedTemplate.temperature;
+                    overrides.temperature = parsedTemplate.temperature;
                 } else {
-                    requestOptions.temperature = 0;
+                    overrides.temperature = 0;
                 }
 
-                const raw = await LLMClient.chatCompletion(requestOptions);
+                const result = await attackPrecheck({ messages, ...overrides });
 
-                LLMClient.logPrompt({
-                    prefix: 'attack_precheck',
-                    metadataLabel: requestOptions.metadataLabel || 'attack_precheck',
-                    systemPrompt: parsedTemplate.systemPrompt,
-                    generationPrompt: parsedTemplate.generationPrompt,
-                    response: raw,
-                    model: requestOptions.model,
-                    endpoint: requestOptions.endpoint
-                });
-
-                if (!raw.trim()) {
+                if (!result || !result.response) {
                     return true;
                 }
 
-                const normalized = raw.toLowerCase();
-                if (normalized.includes('<response>no</response>')) {
-                    return false;
-                }
-                if (normalized.includes('<response>yes</response>')) {
-                    return true;
-                }
-
-                return true;
+                return result.response.toLowerCase() !== 'no';
             } catch (error) {
                 console.warn('Attack precheck failed:', error.message);
                 return true;
@@ -10216,30 +10044,20 @@ module.exports = function registerApiRoutes(scope) {
                     return { raw: '', structured: [] };
                 }
 
-                const requestOptions = {
-                    messages: [
-                        { role: 'system', content: parsedTemplate.systemPrompt },
-                        { role: 'user', content: parsedTemplate.generationPrompt }
-                    ],
-                    metadataLabel: 'disposition_check'
-                };
+                const dispositionMessages = [
+                    { role: 'system', content: parsedTemplate.systemPrompt },
+                    { role: 'user', content: parsedTemplate.generationPrompt }
+                ];
 
+                const overrides = {};
                 if (typeof parsedTemplate.temperature === 'number') {
-                    requestOptions.temperature = parsedTemplate.temperature;
+                    overrides.temperature = parsedTemplate.temperature;
                 }
 
-                const raw = await LLMClient.chatCompletion(requestOptions);
-                const structured = parseDispositionCheckResponse(raw);
+                const dispositionResult = await dispositionCheck({ messages: dispositionMessages, ...overrides });
+                const structured = dispositionResult?.npcDispositions || [];
 
-                LLMClient.logPrompt({
-                    prefix: requestOptions.metadataLabel,
-                    metadataLabel: requestOptions.metadataLabel,
-                    systemPrompt: parsedTemplate.systemPrompt || '',
-                    generationPrompt: parsedTemplate.generationPrompt || '',
-                    response: raw || ''
-                });
-
-                return { raw, structured };
+                return { raw: JSON.stringify(dispositionResult), structured };
             } catch (error) {
                 console.warn('Failed to run disposition check prompt:', error.message);
                 return { raw: '', structured: [] };
@@ -10512,40 +10330,39 @@ module.exports = function registerApiRoutes(scope) {
                     return { raw: '', structured: null };
                 }
 
-                const requestOptions = {
-                    messages: [
-                        { role: 'system', content: parsedTemplate.systemPrompt },
-                        { role: 'user', content: parsedTemplate.generationPrompt }
-                    ],
-                    metadataLabel: 'npc_plausibility'
-                };
+                const plausibilityMessages = [
+                    { role: 'system', content: parsedTemplate.systemPrompt },
+                    { role: 'user', content: parsedTemplate.generationPrompt }
+                ];
 
+                const overrides = {};
                 if (typeof parsedTemplate.temperature === 'number') {
-                    requestOptions.temperature = parsedTemplate.temperature;
+                    overrides.temperature = parsedTemplate.temperature;
                 }
 
-                const raw = await LLMClient.chatCompletion(requestOptions);
-                LLMClient.logPrompt({
-                    prefix: 'prompt',
-                    metadataLabel: requestOptions.metadataLabel || 'npc_plausibility',
-                    systemPrompt: parsedTemplate.systemPrompt,
-                    generationPrompt: parsedTemplate.generationPrompt,
-                    response: raw
-                });
-                const actionPlan = parseNpcActionPlan(raw);
+                const plausibilityResult = await plausibilityCheck({ messages: plausibilityMessages, metadataLabel: 'npc_plausibility', ...overrides });
+                const raw = JSON.stringify(plausibilityResult);
                 let itemContext = '';
                 let abilityContext = '';
-                let itemsMentioned = [];
-                let abilitiesMentioned = [];
-                if (actionPlan?.description) {
+                let itemsMentioned = Array.isArray(plausibilityResult?.itemsMentioned) ? plausibilityResult.itemsMentioned : [];
+                let abilitiesMentioned = Array.isArray(plausibilityResult?.abilitiesMentioned) ? plausibilityResult.abilitiesMentioned : [];
+
+                // Use reason text to find additional item/ability mentions
+                const descriptionText = plausibilityResult?.reason || '';
+                if (descriptionText) {
                     const itemNames = collectItemNamesForMatching();
                     const abilityNames = collectAbilityNamesForMatching({
                         player: npc,
                         location: locationOverride || null,
                         includeAllActors: true
                     });
-                    itemsMentioned = findMentionedNamesInText(actionPlan.description, itemNames);
-                    abilitiesMentioned = findMentionedNamesInText(actionPlan.description, abilityNames);
+                    const foundItems = findMentionedNamesInText(descriptionText, itemNames);
+                    const foundAbilities = findMentionedNamesInText(descriptionText, abilityNames);
+                    // Merge with schema-provided mentions
+                    const itemSet = new Set([...itemsMentioned, ...foundItems]);
+                    const abilitySet = new Set([...abilitiesMentioned, ...foundAbilities]);
+                    itemsMentioned = Array.from(itemSet);
+                    abilitiesMentioned = Array.from(abilitySet);
                     itemContext = buildItemContextXml(itemsMentioned);
                     abilityContext = buildAbilityContextXml(abilitiesMentioned, {
                         player: npc,
@@ -10554,10 +10371,16 @@ module.exports = function registerApiRoutes(scope) {
                     });
                 }
 
-                const structured = actionPlan
+                const structured = plausibilityResult
                     ? {
-                        ...actionPlan,
-                        plausibility: mapNpcActionPlanToPlausibility(actionPlan),
+                        description: plausibilityResult.reason || null,
+                        difficulty: plausibilityResult.skillCheck?.difficulty || null,
+                        skill: plausibilityResult.skillCheck?.skill || null,
+                        plausibility: {
+                            type: plausibilityResult.type,
+                            reason: plausibilityResult.reason || null,
+                            skillCheck: plausibilityResult.skillCheck || null,
+                        },
                         itemsMentioned,
                         abilitiesMentioned
                     }
@@ -11517,37 +11340,13 @@ module.exports = function registerApiRoutes(scope) {
                 }
 
                 const aiMetricsLabel = actor.isNPC ? 'npc_action' : 'player_action';
-                const requestOptions = {
-                    messages,
-                    metadataLabel: aiMetricsLabel,
-                    timeoutMs: baseTimeoutMilliseconds,
-                    validateXML: false,
-                };
-                if (Globals.config.repetition_buster) {
-                    requestOptions.requiredRegex = playerActionProseRegex;
-                }
-
+                const actionOverrides = {};
                 if (typeof parsedTemplate.temperature === 'number') {
-                    requestOptions.temperature = parsedTemplate.temperature;
+                    actionOverrides.temperature = parsedTemplate.temperature;
                 }
 
-                let raw = await LLMClient.chatCompletion(requestOptions);
-                if (promptLog) {
-                    LLMClient.logPrompt({
-                        prefix: actor.isNPC ? 'npc_action' : 'player_action',
-                        metadataLabel: aiMetricsLabel,
-                        systemPrompt: promptLog.systemPrompt || '',
-                        generationPrompt: promptLog.generationPrompt || '',
-                        response: raw,
-                        model: requestOptions.model,
-                        endpoint: requestOptions.endpoint
-                    });
-                }
-
-                if (Globals.config.repetition_buster) {
-                    const parsedProse = await parsePlayerActionProseFromXml(raw, { logJson: true });
-                    raw = parsedProse.prose;
-                }
+                const actionResult = await playerAction({ messages, metadataLabel: aiMetricsLabel, ...actionOverrides });
+                let raw = actionResult?.prose || '';
 
                 const debug = {
                     actorId: actor.id || null,
@@ -19924,33 +19723,21 @@ module.exports = function registerApiRoutes(scope) {
             }
             messages.push({ role: 'user', content: generationPrompt });
 
-            const requestOptions = {
-                messages,
-                metadataLabel
-            };
+            const overrides = {};
             if (typeof promptData.temperature === 'number') {
-                requestOptions.temperature = promptData.temperature;
+                overrides.temperature = promptData.temperature;
             } else {
                 const configTemperature = Number(config.ai.temperature);
                 if (Number.isInteger(configTemperature)) {
-                    requestOptions.temperature = configTemperature;
+                    overrides.temperature = configTemperature;
                 }
             }
 
-            const aiMessage = await LLMClient.chatCompletion(requestOptions);
-            if (!aiMessage || typeof aiMessage !== 'string') {
+            const generatedFaction = await factionAutofill({ messages, metadataLabel, ...overrides });
+            if (!generatedFaction) {
                 throw new Error('AI did not return a usable response.');
             }
-
-            LLMClient.logPrompt({
-                prefix: metadataPrefix,
-                metadataLabel,
-                systemPrompt,
-                generationPrompt,
-                response: aiMessage
-            });
-
-            const generatedFaction = parseFactionAutofillResponse(aiMessage);
+            const aiMessage = JSON.stringify(generatedFaction);
             const mergedFaction = mergeFactionAutofillValues(normalizedFaction, generatedFaction);
 
             const generatedRelationMap = mapGeneratedRelationsToIds(generatedFaction.relationEntries, context.existingFactionNameMap);
@@ -23649,6 +23436,9 @@ module.exports = function registerApiRoutes(scope) {
                     throw new Error('Crafting plausibility template did not produce prompts.');
                 }
 
+                // TODO: craft_plausibility produces a combined response (plausibility + crafting results)
+                // that feeds into both parsePlausibilityOutcome and parseCraftingResultsResponse.
+                // Full structured output migration requires a combined schema. For now, keep LLMClient call.
                 const plausibilityResponse = await LLMClient.chatCompletion({
                     messages: [
                         { role: 'system', content: plausibilityTemplate.systemPrompt },
@@ -24212,22 +24002,13 @@ module.exports = function registerApiRoutes(scope) {
                             throw new Error('Player action craft template missing prompts.');
                         }
 
-                        playerActionResponse = await LLMClient.chatCompletion({
-                            messages: [
-                                { role: 'system', content: playerActionTemplate.systemPrompt },
-                                { role: 'user', content: playerActionTemplate.generationPrompt }
-                            ],
-                            metadataLabel: 'craft_player_action'
-                        });
+                        const craftMessages = [
+                            { role: 'system', content: playerActionTemplate.systemPrompt },
+                            { role: 'user', content: playerActionTemplate.generationPrompt }
+                        ];
 
-                        LLMClient.logPrompt({
-                            metadataLabel: 'craft_player_action',
-                            systemPrompt: playerActionTemplate.systemPrompt,
-                            generationPrompt: playerActionTemplate.generationPrompt,
-                            response: playerActionResponse
-                        });
-
-                        const narrative = parseCraftingNarrativeResponse(playerActionResponse);
+                        const narrative = await craftPlayerAction({ messages: craftMessages });
+                        playerActionResponse = JSON.stringify(narrative);
                         if (narrative?.description) {
                             playerActionDescription = narrative.description;
                         }
@@ -27259,28 +27040,23 @@ module.exports = function registerApiRoutes(scope) {
                 throw new Error('Calendar generation prompt template did not produce system/generation prompts.');
             }
 
-            const requestOptions = {
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: generationPrompt }
-                ],
-                metadataLabel: 'calendar_generation'
-            };
+            const calendarMessages = [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: generationPrompt }
+            ];
+            const calendarOverrides = {};
             if (typeof parsedTemplate.temperature === 'number') {
-                requestOptions.temperature = parsedTemplate.temperature;
+                calendarOverrides.temperature = parsedTemplate.temperature;
             }
 
-            const responseText = await LLMClient.chatCompletion(requestOptions);
-            LLMClient.logPrompt({
+            const { object: calendarResult } = await aiGenerateObject({
+                schema: CalendarSchema,
+                messages: calendarMessages,
                 metadataLabel: 'calendar_generation',
-                systemPrompt,
-                generationPrompt,
-                response: responseText,
-                model: requestOptions.model,
-                endpoint: requestOptions.endpoint
+                ...calendarOverrides,
             });
 
-            return parseCalendarDefinitionXml(responseText);
+            return calendarResult;
         }
 
         async function resolveCalendarDefinitionForSetting({ settingSnapshot = null, report = null } = {}) {

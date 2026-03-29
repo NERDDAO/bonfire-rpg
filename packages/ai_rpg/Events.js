@@ -8,6 +8,15 @@ const Faction = require("./Faction.js");
 const LLMClient = require("./LLMClient.js");
 const StatusEffect = require("./StatusEffect.js");
 
+const { eventChecks } = require('./handlers/event.js');
+const { questGenerate, questCheck, questRewardProse } = require('./handlers/quest.js');
+const { alterLocation } = require('./handlers/location.js');
+// NOTE: alterNpc handler not wired yet — NPCAlterSchema only covers { name, description }
+// but _parseCharacterAlterXml returns a rich object (statusEffects, abilities, inventory,
+// attributes, personality, etc.) that _applyCharacterAlteration requires. The alter_npc
+// call site continues to use LLMClient.chatCompletion + _parseCharacterAlterXml until
+// the NPCAlterSchema is expanded to cover the full character alteration shape.
+
 const BASE_TIMEOUT_MS = 120000;
 const DEFAULT_STATUS_DURATION = 3;
 const MAJOR_STATUS_DURATION = 5;
@@ -1386,26 +1395,15 @@ class Events {
             { role: "user", content: parsedQuestTemplate.generationPrompt },
         ];
 
-        const questRequestOptions = {
+        const questCheckResult = await questCheck({
             messages: questMessages,
-            metadataLabel: "quest_check",
-            timeoutMs: this._baseTimeout,
             temperature: 0,
-            validateXML: true,
-            dumpReasoningToConsole: true,
-        };
-
-        const questResponseText =
-            await LLMClient.chatCompletion(questRequestOptions);
-
-        LLMClient.logPrompt({
-            systemPrompt: parsedQuestTemplate.systemPrompt,
-            generationPrompt: parsedQuestTemplate.generationPrompt,
-            response: questResponseText,
-            metadataLabel: "quest_check",
         });
 
-        return questResponseText;
+        // questCheck returns an array of { quest, questId, questIndex, objectiveIndex }.
+        // Return the structured data directly — callers that previously called
+        // parseQuestObjectiveStatusXml on raw XML should use the array as-is.
+        return questCheckResult;
     }
 
     static async runEventChecks({
@@ -1543,37 +1541,29 @@ class Events {
                     { role: "user", content: parsedTemplate.generationPrompt },
                 ];
 
-                let requestPayloadForLog = null;
-                let responsePayloadForLog = null;
-                const requestOptions = {
+                const eventResult = await eventChecks({
                     messages,
-                    metadataLabel: "event_checks",
-                    metadata: { eventGroup: groupIndex },
-                    timeoutMs: this._baseTimeout,
                     temperature: 0,
-                    validateXML: false,
-                    requiredRegex: /<final>[\s\S]*\S[\s\S]*<\/final>/i,
-                    dumpReasoningToConsole: true,
-                    stream: true,
-                    // captureRequestPayload: (payload) => { requestPayloadForLog = payload; },
-                    // captureResponsePayload: (payload) => { responsePayloadForLog = payload; }
-                };
+                });
 
-                const [responseText, questResponseText] = await Promise.all([
-                    LLMClient.chatCompletion(requestOptions),
-                ]);
+                // eventChecks returns { answers: [{ questionIndex, key, answer }] }
+                // Build a Map from questionIndex -> answer for downstream assembly.
+                const answersMap = new Map();
+                if (eventResult && Array.isArray(eventResult.answers)) {
+                    for (const entry of eventResult.answers) {
+                        answersMap.set(entry.questionIndex, entry.answer || "N/A");
+                    }
+                }
 
                 this.logEventCheck({
                     systemPrompt: parsedTemplate.systemPrompt,
                     generationPrompt: parsedTemplate.generationPrompt,
-                    responseText,
+                    responseText: JSON.stringify(eventResult),
                     label: `group_${groupIndex + 1}`,
-                    requestPayload: requestPayloadForLog,
-                    responsePayload: responsePayloadForLog,
                 });
 
                 return {
-                    responseText,
+                    answersMap,
                     groupIndex,
                 };
             }),
@@ -1583,12 +1573,10 @@ class Events {
         const combinedLines = [];
         let globalIndex = 1;
 
-        groupResponses.forEach(({ responseText, groupIndex }) => {
-            const finalBlock = this._extractFinalEventBlock(responseText);
-            const numbered = this._extractNumberedResponses(finalBlock);
+        groupResponses.forEach(({ answersMap, groupIndex }) => {
             const group = EVENT_PROMPT_ORDER[groupIndex];
             group.forEach((definition, localIndex) => {
-                const answer = numbered.get(localIndex + 1) || "N/A";
+                const answer = answersMap.get(localIndex + 1) || "N/A";
                 combinedLines.push(`${globalIndex}. ${answer}`);
                 globalIndex += 1;
             });
@@ -2440,17 +2428,8 @@ class Events {
                     { role: "system", content: parsedRewardTemplate.systemPrompt },
                     { role: "user", content: parsedRewardTemplate.generationPrompt },
                 ];
-                const rewardResponse = await LLMClient.chatCompletion({
+                const rewardResponse = await questRewardProse({
                     messages: rewardMessages,
-                    metadataLabel: "quest_reward_prose",
-                    validateXML: false,
-                });
-                LLMClient.logPrompt({
-                    prefix: "quest_reward_prose",
-                    metadataLabel: "quest_reward_prose",
-                    systemPrompt: parsedRewardTemplate.systemPrompt,
-                    generationPrompt: parsedRewardTemplate.generationPrompt,
-                    response: rewardResponse,
                 });
                 if (typeof rewardResponse === "string" && rewardResponse.trim()) {
                     rewardProse = rewardResponse.trim();
@@ -4197,21 +4176,19 @@ class Events {
                         ];
 
                         const requestStart = Date.now();
-                        const requestOptions = {
+                        const alterLocationOptions = {
                             messages,
-                            metadataLabel: "alter_location",
-                            timeoutMs: this._baseTimeout,
                         };
 
                         if (typeof parsedTemplate.temperature === "number") {
-                            requestOptions.temperature = parsedTemplate.temperature;
+                            alterLocationOptions.temperature = parsedTemplate.temperature;
                         } else if (Number.isInteger(config.ai.temperature)) {
-                            requestOptions.temperature = config.ai.temperature;
+                            alterLocationOptions.temperature = config.ai.temperature;
                         }
 
-                        let aiContent;
+                        let parsedLocation;
                         try {
-                            aiContent = await LLMClient.chatCompletion(requestOptions);
+                            parsedLocation = await alterLocation(alterLocationOptions);
                         } catch (requestError) {
                             console.warn(
                                 "Alter location request failed:",
@@ -4228,18 +4205,12 @@ class Events {
                             locationName: desiredName,
                             systemPrompt: parsedTemplate.systemPrompt,
                             generationPrompt: parsedTemplate.generationPrompt,
-                            responseText: aiContent,
+                            responseText: JSON.stringify(parsedLocation),
                             durationSeconds: (Date.now() - requestStart) / 1000,
                         });
 
-                        if (!aiContent.trim()) {
-                            warnSkippedAlteration(entry, "Empty AI response.");
-                            continue;
-                        }
-
-                        const parsedLocation = this._parseLocationAlterXml(aiContent);
                         if (!parsedLocation) {
-                            warnSkippedAlteration(entry, "Failed to parse AI response.");
+                            warnSkippedAlteration(entry, "Empty AI response.");
                             continue;
                         }
 
@@ -4457,40 +4428,37 @@ class Events {
                         { role: "user", content: parsedTemplate.generationPrompt },
                     ];
 
-                    const questRequestOptions = {
+                    const questGenerateOptions = {
                         messages: questMessages,
-                        metadataLabel: "quest_generate",
-                        timeoutMs: baseTimeout,
                     };
 
                     if (
                         Number.isFinite(parsedTemplate.maxTokens) &&
                         parsedTemplate.maxTokens > 0
                     ) {
-                        questRequestOptions.maxTokens = parsedTemplate.maxTokens;
+                        questGenerateOptions.maxTokens = parsedTemplate.maxTokens;
                     }
                     if (typeof parsedTemplate.temperature === "number") {
-                        questRequestOptions.temperature = parsedTemplate.temperature;
+                        questGenerateOptions.temperature = parsedTemplate.temperature;
                     }
 
                     const requestStart = Date.now();
-                    const questResponse =
-                        await LLMClient.chatCompletion(questRequestOptions);
+                    const questData = await questGenerate(questGenerateOptions);
                     const durationSeconds = (Date.now() - requestStart) / 1000;
 
-                    console.log("Quest generation response received:", questResponse);
+                    console.log("Quest generation response received:", questData);
                     Events._logQuestGeneration({
                         fs,
                         path,
                         baseDir,
                         systemPrompt: parsedTemplate.systemPrompt,
                         generationPrompt: parsedTemplate.generationPrompt,
-                        responseText: questResponse,
+                        responseText: JSON.stringify(questData),
                         metadata: { summary: questSummary, giver: questGiverName },
                         durationSeconds,
                     });
 
-                    if (typeof questResponse !== "string" || !questResponse.trim()) {
+                    if (!questData) {
                         console.warn(
                             "Quest generation returned empty response; skipping quest creation.",
                             {
@@ -4499,11 +4467,6 @@ class Events {
                             },
                         );
                         continue;
-                    }
-
-                    const questData = Events._parseQuestXml(questResponse);
-                    if (!questData) {
-                        throw new Error("Quest generation did not return a usable quest.");
                     }
 
                     const questName =

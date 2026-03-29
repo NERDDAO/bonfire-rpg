@@ -76,6 +76,21 @@ const { RoundManager } = require('./RoundManager');
 const { MultiplayerHub } = require('./MultiplayerHub');
 const { MatrixNarrator } = require('./MatrixNarrator');
 
+// --- Structured output handlers (replacing inline XML parsing) ---
+const { chooseImportantMemories: chooseImportantMemoriesHandler } = require('./handlers/narrative.js');
+const { plausibilityCheck: plausibilityCheckHandler, equipBest: equipBestHandler } = require('./handlers/combat.js');
+const { npcSkillAssignments: npcSkillAssignmentsHandler, npcAbilityAssignments: npcAbilityAssignmentsHandler, npcAliasAssignments: npcAliasAssignmentsHandler } = require('./handlers/npc.js');
+const { chooseExistingRegionExit: chooseExistingRegionExitHandler, selectRegionEntrance: selectRegionEntranceHandler } = require('./handlers/region.js');
+const { factionGeneration: factionGenerationHandler, factionRelationshipGeneration: factionRelationshipGenerationHandler, factionReputationGeneration: factionReputationGenerationHandler } = require('./handlers/faction.js');
+const { aiGenerateObject } = require('./ai.js');
+const { SkillArraySchema } = require('./schemas/skill.js');
+// NOTE: The following handlers are imported but not yet wired because their call sites
+// still rely on raw XML parsing (Location.fromXMLSnippet, parseThingsXml, etc.):
+//   generateNpcs, npcNameRegen (handlers/npc.js)
+//   generateLocation, regenLocationName (handlers/location.js)
+//   generateThings, alterThing, regenThingName (handlers/thing.js)
+//   generateRegion, generateRegionStubLocations, regenRegionName (handlers/region.js)
+
 Globals.baseDir = __dirname;
 Globals.sceneSummaries = new SceneSummaries();
 
@@ -5939,20 +5954,31 @@ function kickOffChooseImportantMemoriesJob({ actors, maxMemories, baseContext, t
         ];
 
         const requestStart = Date.now();
-        let responseText = null;
+        let memoryResult = null;
         try {
-            responseText = await LLMClient.chatCompletion({
+            memoryResult = await chooseImportantMemoriesHandler({
                 messages,
                 metadataLabel: 'choose_important_memories',
-                runInBackground: true
             });
         } catch (error) {
             console.warn('choose_important_memories request failed:', error.message);
             return;
         }
 
-        const selectionsByName = parseChooseImportantMemoriesResponse(responseText, maxMemories);
-        if (!(selectionsByName instanceof Map) || selectionsByName.size === 0) {
+        // Convert handler array result to Map<lowercaseName, indices[]>
+        const selectionsByName = new Map();
+        if (Array.isArray(memoryResult)) {
+            for (const entry of memoryResult) {
+                if (!entry?.name) continue;
+                const indices = Array.isArray(entry.recalledMemories)
+                    ? entry.recalledMemories.filter(i => Number.isFinite(i)).slice(0, maxMemories)
+                    : [];
+                if (indices.length) {
+                    selectionsByName.set(entry.name.trim().toLowerCase(), indices);
+                }
+            }
+        }
+        if (selectionsByName.size === 0) {
             return;
         }
 
@@ -5981,7 +6007,7 @@ function kickOffChooseImportantMemoriesJob({ actors, maxMemories, baseContext, t
             metadataLabel: 'choose_important_memories',
             systemPrompt: parsedTemplate.systemPrompt || '',
             generationPrompt: parsedTemplate.generationPrompt || '',
-            response: responseText || '',
+            response: JSON.stringify(memoryResult) || '',
             model: undefined,
             endpoint: undefined
         });
@@ -7308,36 +7334,37 @@ async function runPlausibilityCheck({ actionText, locationId, attackContext = nu
         ];
 
         const requestStart = Date.now();
-        const requestOptions = {
+        const structured = await plausibilityCheckHandler({
             messages,
-            metadataLabel: 'plausibility_check'
-        };
-        const plausibilityResponse = await LLMClient.chatCompletion(requestOptions);
+            metadataLabel: 'plausibility_check',
+        });
+
+        const durationSeconds = (Date.now() - requestStart) / 1000;
+        const responseJson = JSON.stringify(structured);
 
         LLMClient.logPrompt({
             prefix: 'plausibility_check',
-            metadataLabel: requestOptions.metadataLabel || 'plausibility_check',
+            metadataLabel: 'plausibility_check',
             systemPrompt: parsedTemplate.systemPrompt,
             generationPrompt: parsedTemplate.generationPrompt,
-            response: plausibilityResponse,
-            model: requestOptions.model,
-            endpoint: requestOptions.endpoint,
+            response: responseJson,
             sections: [
                 {
                     title: 'Duration',
-                    content: formatDurationLine((Date.now() - requestStart) / 1000)
+                    content: formatDurationLine(durationSeconds)
                 }
             ]
         });
 
-        const structured = parsePlausibilityOutcome(plausibilityResponse);
-        if (!plausibilityResponse.trim()) {
+        if (!structured) {
             return null;
         }
 
-        const safeResponse = Events.escapeHtml(plausibilityResponse.trim());
+        // Build a text representation for the HTML display
+        const rawText = structured.reason || structured.type || '';
+        const safeResponse = Events.escapeHtml(rawText.trim());
         return {
-            raw: plausibilityResponse,
+            raw: rawText,
             html: safeResponse.replace(/\n/g, '<br>'),
             structured
         };
@@ -13577,13 +13604,12 @@ async function equipBestGearForCharacter({
 
     timeoutScale = Math.max(1, Number(timeoutScale) || 1);
 
-    let equipResponse = '';
     const requestStart = Date.now();
+    let equipResult;
     try {
-        equipResponse = await LLMClient.chatCompletion({
+        equipResult = await equipBestHandler({
             messages,
-            timeoutScale,
-            metadataLabel: 'equip_best'
+            metadataLabel: 'equip_best',
         });
     } catch (error) {
         console.warn('Equip-best API call failed:', error.message || error);
@@ -13591,14 +13617,14 @@ async function equipBestGearForCharacter({
     }
 
     const durationSeconds = (Date.now() - requestStart) / 1000;
-    const assignments = parseEquipBestAssignments(equipResponse);
+    const assignments = Array.isArray(equipResult?.items) ? equipResult.items : [];
 
     LLMClient.logPrompt({
         prefix: 'equip_best',
         metadataLabel: 'equip_best',
         systemPrompt: systemPrompt || '',
         generationPrompt: generationPrompt || '',
-        response: equipResponse || '',
+        response: JSON.stringify(equipResult) || '',
         sections: [
             { title: 'Duration', content: formatDurationLine(durationSeconds) },
             { title: 'Parsed Assignments', content: JSON.stringify(assignments, null, 2) }
@@ -14341,40 +14367,24 @@ async function requestNpcSkillAssignments({
         const labelSuffix = Array.isArray(npcNames) && npcNames.length
             ? `:${npcNames.slice(0, 3).map(name => (name || '').trim()).filter(Boolean).join(',')}`
             : '';
-        const skillResponse = await LLMClient.chatCompletion({
+        const assignments = await npcSkillAssignmentsHandler({
             messages: promptRequest.messages,
             temperature: promptRequest.temperature,
-            timeoutScale,
-            metadataLabel: `npc_progression_assignments${labelSuffix}`
+            metadataLabel: `npc_progression_assignments${labelSuffix}`,
         });
-
-        if (!skillResponse || !skillResponse.trim()) {
-            console.log('NPC progression assignments returned empty response.');
-            return {
-                assignments: new Map()
-            };
-        }
-
-        const normalizedResponse = typeof skillResponse === 'string' ? skillResponse.trim() : '';
-        if (!normalizedResponse) {
-            console.log('NPC progression assignments returned no result.');
-            return null;
-        }
 
         LLMClient.logPrompt({
             prefix: 'npc_progression_assignments',
             metadataLabel: `npc_progression_assignments${labelSuffix}`,
             systemPrompt: promptRequest.systemPrompt,
             generationPrompt: promptRequest.generationPrompt,
-            response: skillResponse
+            response: JSON.stringify(Array.from(assignments.entries()))
         });
-
-        const assignments = parseNpcSkillAssignments(skillResponse);
 
         return {
             assignments,
             prompt: promptRequest.generationPrompt,
-            response: skillResponse
+            response: JSON.stringify(Array.from(assignments.entries()))
         };
     } catch (error) {
         console.warn('Failed to request NPC progression assignments:', error.message);
@@ -14824,33 +14834,24 @@ async function requestNpcAbilityAssignments({
         const labelSuffix = Array.isArray(npcNames) && npcNames.length
             ? `:${npcNames.slice(0, 3).map(name => (name || '').trim()).filter(Boolean).join(',')}`
             : '';
-        const abilityResponse = await LLMClient.chatCompletion({
+        const assignments = await npcAbilityAssignmentsHandler({
             messages: promptRequest.messages,
             temperature: promptRequest.temperature,
-            timeoutScale: timeoutScale,
-            metadataLabel: `npc_ability_assignments${labelSuffix}`
+            metadataLabel: `npc_ability_assignments${labelSuffix}`,
         });
-
-        if (!abilityResponse || !abilityResponse.trim()) {
-            return {
-                assignments: new Map()
-            };
-        }
 
         LLMClient.logPrompt({
             prefix: 'npc_ability_assignments',
             metadataLabel: `npc_ability_assignments${labelSuffix}`,
             systemPrompt: promptRequest.systemPrompt,
             generationPrompt: promptRequest.generationPrompt,
-            response: abilityResponse
+            response: JSON.stringify(Array.from(assignments.entries()))
         });
-
-        const assignments = parseNpcAbilityAssignments(abilityResponse);
 
         return {
             assignments,
             prompt: promptRequest.generationPrompt,
-            response: abilityResponse
+            response: JSON.stringify(Array.from(assignments.entries()))
         };
     } catch (error) {
         console.warn('Failed to request NPC ability assignments:', error.message);
@@ -14901,24 +14902,17 @@ async function requestNpcAliasAssignments({ timeoutScale = 1, npcNames = [] } = 
         const labelSuffix = normalizedNames.length
             ? `:${normalizedNames.slice(0, 3).join(',')}`
             : '';
-        const aliasResponse = await LLMClient.chatCompletion({
+        const aliasAssignments = await npcAliasAssignmentsHandler({
             messages,
-            timeoutScale: Math.max(1, Number(timeoutScale) || 1),
-            metadataLabel: `npc_alias_assignments${labelSuffix}`
+            metadataLabel: `npc_alias_assignments${labelSuffix}`,
         });
-
-        if (!aliasResponse || !aliasResponse.trim()) {
-            return {
-                assignments: new Map()
-            };
-        }
 
         LLMClient.logPrompt({
             prefix: 'npc_alias_assignments',
             metadataLabel: `npc_alias_assignments${labelSuffix}`,
             systemPrompt,
             generationPrompt,
-            response: aliasResponse
+            response: JSON.stringify(Array.from(aliasAssignments.entries()))
         });
 
         try {
@@ -14934,9 +14928,9 @@ async function requestNpcAliasAssignments({ timeoutScale = 1, npcNames = [] } = 
         }
 
         return {
-            assignments: parseNpcAliasAssignments(aliasResponse),
+            assignments: aliasAssignments,
             prompt: generationPrompt,
-            response: aliasResponse
+            response: JSON.stringify(Array.from(aliasAssignments.entries()))
         };
     } catch (error) {
         console.warn('Failed to request NPC alias assignments:', error.message);
@@ -19672,21 +19666,21 @@ async function generateSkillsList({ count, settingDescription, existingSkills = 
 
     try {
         const requestStart = Date.now();
-        const skillResponse = await LLMClient.chatCompletion({
+        const { object: parsedSkills } = await aiGenerateObject({
+            schema: SkillArraySchema,
             messages,
             temperature: parsedTemplate.temperature,
-            metadataLabel: 'skill_generation'
+            metadataLabel: 'skill_generation',
         });
 
         logSkillGeneration({
             systemPrompt,
             generationPrompt,
-            responseText: skillResponse,
+            responseText: JSON.stringify(parsedSkills),
             metadataLabel: 'skill_generation'
         });
 
-        const parsedSkills = parseSkillsXml(skillResponse);
-        if (!parsedSkills.length) {
+        if (!Array.isArray(parsedSkills) || !parsedSkills.length) {
             console.warn('Skill generation returned no skills, using fallback.');
             return buildFallbackSkills({ count: safeCount, attributes: attributeEntries });
         }
@@ -19735,7 +19729,7 @@ async function generateFactionsList({ count, settingDescription, generationNotes
         stageLabel,
         metadataLabel,
         renderTemplate,
-        parseResponse,
+        handler,
         logResponse,
         validateParsed
     }) => {
@@ -19753,23 +19747,24 @@ async function generateFactionsList({ count, settingDescription, generationNotes
                     throw new Error(`${stageLabel} template missing system or generation prompt.`);
                 }
 
-                const responseText = await LLMClient.chatCompletion({
-                    messages: [
-                        { role: 'system', content: systemPrompt },
-                        { role: 'user', content: generationPrompt }
-                    ],
+                const messages = [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: generationPrompt }
+                ];
+
+                const parsed = await handler({
+                    messages,
                     maxTokens: parsedTemplate.maxTokens || 30000,
                     temperature: parsedTemplate.temperature,
-                    metadataLabel
+                    metadataLabel,
                 });
 
                 logResponse({
                     systemPrompt,
                     generationPrompt,
-                    responseText
+                    responseText: JSON.stringify(parsed)
                 });
 
-                const parsed = parseResponse(responseText);
                 if (typeof validateParsed === 'function') {
                     validateParsed(parsed);
                 }
@@ -19792,7 +19787,7 @@ async function generateFactionsList({ count, settingDescription, generationNotes
             generationNotes,
             numFactions: safeCount
         }),
-        parseResponse: parseFactionCoreXml,
+        handler: factionGenerationHandler,
         logResponse: logFactionGeneration,
         validateParsed: (parsed) => {
             if (!Array.isArray(parsed) || !parsed.length) {
@@ -19814,7 +19809,7 @@ async function generateFactionsList({ count, settingDescription, generationNotes
     const nameLookup = new Map(normalizedNames.map(entry => [entry.key, entry.name]));
     const knownFactionKeys = new Set(normalizedNames.map(entry => entry.key));
 
-    const parsedRelationshipsByFaction = await runFactionPromptStageWithRetries({
+    const parsedRelationshipsByFactionArray = await runFactionPromptStageWithRetries({
         stageLabel: 'relationship generation',
         metadataLabel: 'faction_relationship_generation',
         renderTemplate: () => renderFactionRelationshipsPrompt({
@@ -19822,16 +19817,29 @@ async function generateFactionsList({ count, settingDescription, generationNotes
             generationNotes,
             factions: parsedCoreFactions
         }),
-        parseResponse: parseFactionRelationsXml,
+        handler: factionRelationshipGenerationHandler,
         logResponse: logFactionRelationshipGeneration
     });
+    // Convert handler array output to Map<lowerName, relations[]> matching old parseFactionRelationsXml
+    const parsedRelationshipsByFaction = new Map();
+    if (Array.isArray(parsedRelationshipsByFactionArray)) {
+        for (const entry of parsedRelationshipsByFactionArray) {
+            if (!entry?.name) continue;
+            const relations = Array.isArray(entry.relations) ? entry.relations.map(r => ({
+                targetName: r.factionName || r.targetName || '',
+                status: r.status || 'neutral',
+                notes: r.notes || ''
+            })) : [];
+            parsedRelationshipsByFaction.set(entry.name.trim().toLowerCase(), relations);
+        }
+    }
     for (const relationFactionKey of parsedRelationshipsByFaction.keys()) {
         if (!knownFactionKeys.has(relationFactionKey)) {
             console.warn(`Faction relationship generation returned unknown faction "${relationFactionKey}"; ignoring.`);
         }
     }
 
-    const parsedReputationByFaction = await runFactionPromptStageWithRetries({
+    const parsedReputationByFactionArray = await runFactionPromptStageWithRetries({
         stageLabel: 'reputation generation',
         metadataLabel: 'faction_reputation_generation',
         renderTemplate: () => renderFactionReputationPrompt({
@@ -19839,16 +19847,23 @@ async function generateFactionsList({ count, settingDescription, generationNotes
             generationNotes,
             factions: parsedCoreFactions
         }),
-        parseResponse: parseFactionReputationTiersXml,
+        handler: factionReputationGenerationHandler,
         logResponse: logFactionReputationGeneration,
-        validateParsed: (parsed) => {
-            for (const normalized of normalizedNames) {
-                if (!parsed.has(normalized.key)) {
-                    throw new Error(`Faction reputation generation is missing tiers for "${normalized.name}".`);
-                }
-            }
-        }
     });
+    // Convert handler array output to Map<lowerName, reputationTiers[]> matching old parseFactionReputationTiersXml
+    const parsedReputationByFaction = new Map();
+    if (Array.isArray(parsedReputationByFactionArray)) {
+        for (const entry of parsedReputationByFactionArray) {
+            if (!entry?.name) continue;
+            parsedReputationByFaction.set(entry.name.trim().toLowerCase(), entry.reputationTiers || []);
+        }
+    }
+    // Validate all expected factions have reputation tiers
+    for (const normalized of normalizedNames) {
+        if (!parsedReputationByFaction.has(normalized.key)) {
+            throw new Error(`Faction reputation generation is missing tiers for "${normalized.name}".`);
+        }
+    }
     for (const reputationFactionKey of parsedReputationByFaction.keys()) {
         if (!knownFactionKeys.has(reputationFactionKey)) {
             console.warn(`Faction reputation generation returned unknown faction "${reputationFactionKey}"; ignoring.`);
@@ -20022,20 +20037,19 @@ async function generateSkillsByNames({ skillNames = [], settingDescription }) {
 
     try {
         const requestStart = Date.now();
-        const skillResponse = await LLMClient.chatCompletion({
+        const { object: parsedSkills } = await aiGenerateObject({
+            schema: SkillArraySchema,
             messages,
             temperature: parsedTemplate.temperature,
-            metadataLabel: 'skill_generation_by_name'
+            metadataLabel: 'skill_generation_by_name',
         });
 
         logSkillGeneration({
             systemPrompt,
             generationPrompt,
-            responseText: skillResponse,
+            responseText: JSON.stringify(parsedSkills),
             metadataLabel: 'skill_generation_by_name'
         });
-
-        const parsedSkills = parseSkillsXml(skillResponse);
         const parsedMap = new Map();
         for (const parsed of parsedSkills) {
             if (!parsed?.name) {
@@ -22758,20 +22772,19 @@ async function chooseExistingRegionExit({
         console.log(`🚪 Requesting existing region exit from ${sourceRegion?.name || sourceRegion?.id || 'unknown region'}`
             + ` via ${sourceLocation?.name || sourceLocation?.id || 'unknown location'} to ${targetRegion?.name || targetRegion?.id || 'target region'}.`);
 
-        const aiResponse = await LLMClient.chatCompletion({
+        const parsed = await chooseExistingRegionExitHandler({
             messages,
-            metadataLabel: 'existing_region_exit'
+            metadataLabel: 'existing_region_exit',
         });
-        const normalizedResponse = typeof aiResponse === 'string' ? aiResponse.trim() : '';
+
         LLMClient.logPrompt({
             prefix: 'existing_region_exit',
             metadataLabel: 'existing_region_exit',
             systemPrompt: prompt.systemPrompt || '',
             generationPrompt: prompt.generationPrompt || '',
-            response: normalizedResponse
+            response: JSON.stringify(parsed) || ''
         });
 
-        const parsed = parseExistingRegionExitResponse(normalizedResponse);
         if (parsed?.name) {
             console.log(`🚪 Existing region exit selected: ${parsed.name}`);
         } else {
@@ -24371,17 +24384,16 @@ async function chooseRegionEntrance({
         ];
 
         console.log('🚪 Requesting region entrance selection...');
-        const entranceResponse = await LLMClient.chatCompletion({
+        const entranceResult = await selectRegionEntranceHandler({
             messages: entranceMessages,
-            metadataLabel: 'region_entrance_selection'
+            metadataLabel: 'region_entrance_selection',
         });
 
-        const entranceMessage = typeof entranceResponse === 'string' ? entranceResponse.trim() : '';
-        if (!entranceMessage) {
+        const entranceName = entranceResult?.name || null;
+        if (!entranceName) {
             console.warn('Entrance selection response was empty.');
             return;
         }
-        const entranceName = parseRegionEntranceResponse(entranceMessage);
 
         if (entranceName) {
             const matchedStub = stubMap.get(normalizeRegionLocationName(entranceName));
