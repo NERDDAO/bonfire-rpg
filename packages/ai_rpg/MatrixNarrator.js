@@ -6,6 +6,7 @@ const {
   AutojoinRoomsMixin,
 } = require('matrix-bot-sdk');
 const path = require('path');
+const fs = require('fs');
 
 const IC_PREFIXES = ['/do ', '/say ', '/attack ', '/use ', '/go ', '/look ', '/talk '];
 
@@ -17,10 +18,11 @@ class MatrixNarrator {
    * @param {string} opts.storageDir - path for bot state (default: ./matrix-storage)
    * @param {function} opts.onICAction - called with (bonfireId, locationRoomId, playerId, text)
    */
-  constructor({ homeserverUrl, accessToken, storageDir, onICAction }) {
+  constructor({ homeserverUrl, accessToken, storageDir, onICAction, onMessage }) {
     this.homeserverUrl = homeserverUrl;
     this.accessToken = accessToken;
     this.onICAction = onICAction || (() => {});
+    this.onMessage = onMessage || null;
 
     const storage = new SimpleFsStorageProvider(
       path.join(storageDir || path.join(__dirname, 'matrix-storage'), 'bot.json')
@@ -59,15 +61,90 @@ class MatrixNarrator {
     }
   }
 
+  // ── Persistence ─────────────────────────────────────────
+
+  _manifestPath() {
+    const dir = this.client.storageProvider?.trackingPath
+      ? path.dirname(this.client.storageProvider.trackingPath)
+      : path.join(__dirname, 'matrix-storage');
+    return path.join(dir, 'bonfires-manifest.json');
+  }
+
+  _loadManifest() {
+    try {
+      const raw = fs.readFileSync(this._manifestPath(), 'utf8');
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+
+  _saveManifest(manifest) {
+    const dir = path.dirname(this._manifestPath());
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(this._manifestPath(), JSON.stringify(manifest, null, 2));
+  }
+
   // ── Bonfire lifecycle ──────────────────────────────────────
 
   /**
-   * Create a Matrix space + rooms for a new bonfire
+   * Ensure a bonfire space + rooms exist on Matrix.
+   * Loads from manifest if already created, otherwise creates fresh.
+   */
+  async ensureBonfire(bonfireId, { name, topic } = {}) {
+    // Check if already loaded in memory
+    if (this.bonfires.has(bonfireId)) {
+      console.log(`[matrix] Bonfire ${bonfireId} already loaded`);
+      return this.bonfires.get(bonfireId);
+    }
+
+    // Check manifest for previously created rooms
+    const manifest = this._loadManifest();
+    if (manifest[bonfireId]) {
+      const saved = manifest[bonfireId];
+      console.log(`[matrix] Loading bonfire ${bonfireId} from manifest (space: ${saved.spaceId})`);
+
+      const locationRooms = new Map(Object.entries(saved.locationRooms || {}));
+
+      const bonfireData = {
+        spaceId: saved.spaceId,
+        globalOOCRoomId: saved.globalOOCRoomId,
+        deathFeedRoomId: saved.deathFeedRoomId,
+        locationRooms,
+      };
+      this.bonfires.set(bonfireId, bonfireData);
+      this.roomToBonfire.set(saved.globalOOCRoomId, { bonfireId, type: 'global-ooc' });
+      this.roomToBonfire.set(saved.deathFeedRoomId, { bonfireId, type: 'death-feed' });
+      for (const [locId, roomId] of locationRooms) {
+        this.roomToBonfire.set(roomId, { bonfireId, type: 'location', locationId: locId });
+      }
+
+      return bonfireData;
+    }
+
+    // Create fresh
+    console.log(`[matrix] Creating new bonfire space for ${bonfireId}`);
+    const result = await this.createBonfire(bonfireId, { name, topic });
+
+    // Persist to manifest
+    const bonfireData = this.bonfires.get(bonfireId);
+    manifest[bonfireId] = {
+      spaceId: bonfireData.spaceId,
+      globalOOCRoomId: bonfireData.globalOOCRoomId,
+      deathFeedRoomId: bonfireData.deathFeedRoomId,
+      locationRooms: Object.fromEntries(bonfireData.locationRooms),
+    };
+    this._saveManifest(manifest);
+
+    return result;
+  }
+
+  /**
+   * Create a Matrix space + rooms for a new bonfire (internal — use ensureBonfire)
    */
   async createBonfire(bonfireId, { name, topic } = {}) {
     const spaceName = name || `Bonfire: ${bonfireId}`;
 
-    // Create the space
     const spaceId = await this.client.createRoom({
       name: spaceName,
       topic: topic || `AI RPG world — ${bonfireId}`,
@@ -79,22 +156,15 @@ class MatrixNarrator {
       preset: 'public_chat',
     });
 
-    // Create death feed room (public, world-readable)
     const deathFeedRoomId = await this._createChildRoom(spaceId, {
       name: `${spaceName} — Death Feed`,
       topic: 'Here lie the fallen. Every death, every legend.',
     });
 
-    // Global OOC room — general chat across the whole bonfire (no game actions)
     const globalOOCRoomId = await this._createChildRoom(spaceId, {
       name: `${spaceName} — General`,
       topic: 'General chat for all players. No game actions here.',
     });
-
-    // Location rooms are created on-demand as players explore.
-    // Each location room is both chat AND game — regular messages are OOC,
-    // prefixed messages (/do, /say, /attack) are IC actions that trigger rounds.
-    // Players only get invited to the room they're currently in.
 
     const bonfireData = {
       spaceId,
@@ -107,7 +177,7 @@ class MatrixNarrator {
     this.roomToBonfire.set(deathFeedRoomId, { bonfireId, type: 'death-feed' });
 
     console.log(`[matrix] Created bonfire space ${spaceName} (${spaceId})`);
-    return { spaceId, deathFeedRoomId };
+    return bonfireData;
   }
 
   /**
@@ -128,6 +198,14 @@ class MatrixNarrator {
 
     bonfire.locationRooms.set(locationId, roomId);
     this.roomToBonfire.set(roomId, { bonfireId, type: 'location', locationId });
+
+    // Persist new location room to manifest
+    const manifest = this._loadManifest();
+    if (manifest[bonfireId]) {
+      manifest[bonfireId].locationRooms = manifest[bonfireId].locationRooms || {};
+      manifest[bonfireId].locationRooms[locationId] = roomId;
+      this._saveManifest(manifest);
+    }
 
     console.log(`[matrix] Created location room: ${locationName} (${roomId})`);
     return roomId;
@@ -267,20 +345,36 @@ class MatrixNarrator {
     if (!event?.content?.body) return;
     if (event.sender === this.botUserId) return; // Ignore own messages
 
-    const meta = this.roomToBonfire.get(roomId);
-    if (!meta) return; // Not a bonfire room
-
     const body = event.content.body.trim();
+    const sender = event.sender;
+    const displayName = sender.match(/^@([^:]+)/)?.[1] || sender;
 
-    // Check if it's an IC action (location rooms only)
-    if (meta.type === 'location') {
+    console.log(`[matrix] Message in ${roomId} from ${displayName}: ${body.slice(0, 100)}`);
+
+    const meta = this.roomToBonfire.get(roomId);
+
+    // Check if it's an IC action (location rooms or any tracked room)
+    if (meta?.type === 'location') {
       const prefix = IC_PREFIXES.find(p => body.toLowerCase().startsWith(p));
       if (prefix) {
         const actionText = body.slice(prefix.length).trim();
         if (actionText && this.onICAction) {
-          this.onICAction(meta.bonfireId, meta.locationId, event.sender, actionText, prefix.trim().slice(1));
+          console.log(`[matrix] IC action from ${displayName}: /${prefix.trim().slice(1)} ${actionText}`);
+          this.onICAction(meta.bonfireId, meta.locationId, sender, actionText, prefix.trim().slice(1));
         }
+        return; // Don't echo IC actions
       }
+      // Non-prefixed messages in location rooms = OOC (no action needed, just chat)
+    }
+
+    // Emit a general message event for any listener
+    if (this.onMessage) {
+      this.onMessage(roomId, sender, body, {
+        displayName,
+        roomType: meta?.type || 'unknown',
+        bonfireId: meta?.bonfireId || null,
+        locationId: meta?.locationId || null,
+      });
     }
   }
 

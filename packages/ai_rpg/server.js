@@ -649,7 +649,18 @@ if (config.matrix?.enabled && config.matrix?.accessToken) {
             });
         },
     });
-    matrixNarrator.start().catch(err => {
+    matrixNarrator.start().then(async () => {
+        // Ensure default bonfire space exists on Matrix (loads from manifest or creates)
+        try {
+            await matrixNarrator.ensureBonfire('default', {
+                name: 'Bonfire RPG',
+                topic: 'AI-powered permadeath RPG — powered by Bonfires',
+            });
+            console.log('[matrix] Default bonfire space created');
+        } catch (err) {
+            console.warn('[matrix] Failed to create bonfire space:', err.message);
+        }
+    }).catch(err => {
         console.error('[matrix] Failed to start bot:', err.message);
         matrixNarrator = null;
     });
@@ -25155,7 +25166,7 @@ const registerApiRoutes = require('./api');
 registerApiRoutes(apiScope);
 
 const { registerMultiplayerRoutes } = require('./multiplayer-routes');
-registerMultiplayerRoutes(app, { multiplayerHub, roundManager, bonfireManager });
+registerMultiplayerRoutes(app, { multiplayerHub, roundManager, bonfireManager, matrixNarrator });
 
 // Load mods synchronously
 console.log('🔧 Loading Mod System...');

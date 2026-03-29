@@ -1,6 +1,6 @@
 'use strict';
 
-function registerMultiplayerRoutes(app, { multiplayerHub, roundManager, bonfireManager }) {
+function registerMultiplayerRoutes(app, { multiplayerHub, roundManager, bonfireManager, matrixNarrator }) {
 
   // Join a bonfire
   app.post('/api/mp/:bonfireId/join', (req, res) => {
@@ -99,6 +99,27 @@ function registerMultiplayerRoutes(app, { multiplayerHub, roundManager, bonfireM
       active: !!round,
       actionCount: round ? round.actions.length : 0,
       startedAt: round ? round.startedAt : null,
+    });
+  });
+
+  // Get Matrix room config for a bonfire (so frontend can connect)
+  app.get('/api/mp/:bonfireId/matrix', (req, res) => {
+    const { bonfireId } = req.params;
+    if (!matrixNarrator) {
+      return res.json({ enabled: false });
+    }
+    const bonfire = matrixNarrator.bonfires.get(bonfireId);
+    if (!bonfire) {
+      return res.json({ enabled: true, ready: false });
+    }
+    res.json({
+      enabled: true,
+      ready: true,
+      homeserver: matrixNarrator.homeserverUrl,
+      spaceId: bonfire.spaceId,
+      globalOOCRoomId: bonfire.globalOOCRoomId,
+      deathFeedRoomId: bonfire.deathFeedRoomId,
+      locationRooms: Object.fromEntries(bonfire.locationRooms),
     });
   });
 }
