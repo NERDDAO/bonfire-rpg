@@ -999,7 +999,8 @@ class Location {
       randomEvents: this.randomEvents,
       statusEffects: this.getStatusEffects(),
       characterConcepts: this.characterConcepts,
-      enemyConcepts: this.enemyConcepts
+      enemyConcepts: this.enemyConcepts,
+      kgUuid: this.kgUuid || null
     };
   }
 

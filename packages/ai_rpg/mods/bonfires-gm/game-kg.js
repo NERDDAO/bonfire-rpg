@@ -37,7 +37,7 @@ class GameKG {
    * Queue a new entity for creation.
    * Dedupes against knownEntities — skips if already tracked.
    */
-  trackEntity(type, { gameId, name, description, summary, labels = [], attributes = {} }) {
+  trackEntity(type, { gameId, name, description, summary, labels = [], attributes = {}, gameObject }) {
     if (!gameId || !name) return;
     if (this.knownEntities.has(gameId)) return; // already in KG
     if (this.pending.creates.some(c => c.gameId === gameId)) return; // already pending
@@ -54,6 +54,7 @@ class GameKG {
       summary: summary || description || '',
       labels: allLabels,
       attributes: { ...attributes, gameId, type },
+      gameObject: gameObject || null, // reference to write kgUuid back onto
     });
 
     // Pre-register in name index for edge resolution
@@ -134,6 +135,10 @@ class GameKG {
             labels: entity.labels,
           });
           this.nameIndex.set(entity.name, entity.gameId);
+          // Write UUID back onto the game object for save persistence
+          if (entity.gameObject) {
+            entity.gameObject.kgUuid = uuid;
+          }
           results.created++;
         }
       } catch (err) {

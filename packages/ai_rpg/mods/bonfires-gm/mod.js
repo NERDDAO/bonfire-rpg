@@ -98,6 +98,7 @@ function register(scope) {
             description: player.description || '',
             labels: [player.race, player.class].filter(Boolean),
             attributes: { level: player.level, locationId: player.currentLocation },
+            gameObject: player,
           });
 
           // Structural edges
@@ -120,6 +121,7 @@ function register(scope) {
             name: loc.name,
             description: loc.description || '',
             attributes: { regionId: loc.regionId },
+            gameObject: loc,
           });
 
           // PART_OF region edge
@@ -145,6 +147,7 @@ function register(scope) {
             description: thing.description || '',
             labels: [thing.category].filter(Boolean),
             attributes: { rarity: thing.rarity },
+            gameObject: thing,
           });
         }
       }

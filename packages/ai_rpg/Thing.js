@@ -1363,7 +1363,8 @@ class Thing {
       isSalvageable: normalizeBoolean(this.isSalvageable),
       flags: this.#flags && this.#flags.size ? Array.from(this.#flags) : undefined,
       metadata: this.#metadata && Object.keys(this.#metadata).length ? { ...this.#metadata } : undefined,
-      statusEffects: this.getStatusEffects()
+      statusEffects: this.getStatusEffects(),
+      kgUuid: this.kgUuid || null
     };
   }
 
@@ -1423,6 +1424,9 @@ class Thing {
     }
     if (data.lastUpdated && typeof data.lastUpdated === 'string') {
       thing.#lastUpdated = data.lastUpdated;
+    }
+    if (data.kgUuid) {
+      thing.kgUuid = data.kgUuid;
     }
 
     return thing;

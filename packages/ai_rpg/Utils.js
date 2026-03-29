@@ -1377,6 +1377,9 @@ class Utils {
           console.warn(`Failed to restore visited state for location ${location.id}:`, error.message);
         }
       }
+      if (locationData.kgUuid) {
+        location.kgUuid = locationData.kgUuid;
+      }
 
       const exitsByDirection = locationData.exits || {};
       for (const [direction, exitInfo] of Object.entries(exitsByDirection)) {

@@ -4803,7 +4803,8 @@ class Player {
             partyMembersRemovedThisTurn: Array.from(this.#partyMembersRemovedThisTurn),
             elapsedTime: this.#elapsedTime,
             pendingAbilityOptionsByLevel: this.getPendingAbilityOptionsByLevel(),
-            quests: this.#quests.map(quest => quest.toJSON())
+            quests: this.#quests.map(quest => quest.toJSON()),
+            kgUuid: this.kgUuid || null
         };
     }
 
@@ -4939,6 +4940,10 @@ class Player {
                 .filter(Boolean);
         } else {
             player.#quests = [];
+        }
+
+        if (data.kgUuid) {
+            player.kgUuid = data.kgUuid;
         }
 
         return player;
