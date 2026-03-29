@@ -71,6 +71,7 @@ const QuestConfirmationManager = require('./QuestConfirmationManager.js');
 const ModLoader = require('./ModLoader.js');
 const { initializeLorebookManager, getLorebookManager } = require('./lorebook.js');
 const { GameInstance } = require('./GameInstance');
+const { BonfireManager } = require('./BonfireManager');
 
 Globals.baseDir = __dirname;
 Globals.sceneSummaries = new SceneSummaries();
@@ -619,7 +620,8 @@ try {
 }
 
 // Create default game instance for single-player mode
-const defaultInstance = new GameInstance('default', { config });
+const bonfireManager = new BonfireManager();
+const defaultInstance = bonfireManager.create('default', { config });
 Globals.activeInstance = defaultInstance;
 
 function reloadConfigAndDefs() {
@@ -25066,6 +25068,7 @@ const apiScope = {
     realtimeHub,
     addJobSubscriber,
     vehicleDebugEnabled: cliVehicleDebug,
+    bonfireManager,
     instance: defaultInstance,
 
 };
