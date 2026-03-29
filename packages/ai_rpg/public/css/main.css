@@ -7836,8 +7836,7 @@ body.modal-open {
 }
 
 .message.event-summary-batch {
-  background: var(--surface);
-  border-left: 4px solid var(--ember);
+  display: none;
 }
 
 .message.status-summary-batch,

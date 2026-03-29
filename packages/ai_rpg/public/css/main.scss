@@ -8265,8 +8265,7 @@ body.modal-open {
   background: var(--bg);
 }
 .message.event-summary-batch {
-  background: var(--surface);
-  border-left: 4px solid var(--ember);
+  display: none; // Hidden from main chat — shown in Events tab instead
 }
 
 .message.status-summary-batch,
