@@ -70,6 +70,7 @@ const RealtimeHub = require('./RealtimeHub.js');
 const QuestConfirmationManager = require('./QuestConfirmationManager.js');
 const ModLoader = require('./ModLoader.js');
 const { initializeLorebookManager, getLorebookManager } = require('./lorebook.js');
+const { GameInstance } = require('./GameInstance');
 
 Globals.baseDir = __dirname;
 Globals.sceneSummaries = new SceneSummaries();
@@ -616,6 +617,10 @@ try {
     console.error('Error loading configuration:', error.message);
     process.exit(1);
 }
+
+// Create default game instance for single-player mode
+const defaultInstance = new GameInstance('default', { config });
+Globals.activeInstance = defaultInstance;
 
 function reloadConfigAndDefs() {
     const merged = loadMergedConfig(cliConfigOverridePath);
@@ -2483,7 +2488,8 @@ function collectActiveSettingCustomSlopEntries() {
 
         const normalizedTokens = Utils.normalizeKgramTokens(entry, { excludeNpcNames: false });
         if (normalizedTokens.length < 2) {
-            throw new Error(`Custom slop ngram "${entry}" must contain at least 2 non-common tokens after normalization.`);
+            console.warn(`[slop] Skipping custom ngram "${entry}" — fewer than 2 non-common tokens after normalization.`);
+            continue;
         }
         customNgramSet.add(normalizedTokens.join(' '));
     }
@@ -25060,6 +25066,7 @@ const apiScope = {
     realtimeHub,
     addJobSubscriber,
     vehicleDebugEnabled: cliVehicleDebug,
+    instance: defaultInstance,
 
 };
 
