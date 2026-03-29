@@ -23,7 +23,9 @@
     "playwright:settings:screenshot": "node playwright_scripts/capture_settings_page.js"
   },
   "dependencies": {
+    "@openrouter/ai-sdk-provider": "^2.3.3",
     "@xmldom/xmldom": "^0.9.8",
+    "ai": "^6.0.141",
     "axios": "^1.5.0",
     "body-parser": "^1.20.2",
     "cheerio": "^1.1.2",
@@ -36,7 +38,9 @@
     "matrix-bot-sdk": "^0.8.0",
     "nunjucks": "^3.2.4",
     "sharp": "^0.34.5",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "zod": "^4.3.6",
+    "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
