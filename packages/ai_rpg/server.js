@@ -653,8 +653,8 @@ if (config.matrix?.enabled && config.matrix?.accessToken) {
         // Ensure default bonfire space exists on Matrix (loads from manifest or creates)
         try {
             await matrixNarrator.ensureBonfire('default', {
-                name: 'Bonfire RPG',
-                topic: 'AI-powered permadeath RPG — powered by Bonfires',
+                name: 'Memento Mori',
+                topic: 'Remember that you will die. AI permadeath RPG — powered by Bonfires.',
             });
             console.log('[matrix] Default bonfire space created');
         } catch (err) {

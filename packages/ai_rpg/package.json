@@ -1,7 +1,7 @@
 {
-  "name": "ai-rpg",
+  "name": "memento-mori",
   "version": "1.0.0",
-  "description": "An AI-powered RPG game server",
+  "description": "Memento Mori — AI permadeath RPG powered by Bonfires",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
