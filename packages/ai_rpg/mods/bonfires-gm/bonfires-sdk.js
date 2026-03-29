@@ -128,6 +128,13 @@ class KGService {
     });
   }
 
+  async updateEntity(uuid, { name, labels, summary, attributes, bonfireId } = {}) {
+    const bid = bonfireId || this.c.bonfireId;
+    return this.c.request('POST', `/knowledge_graph/entity/${encodeURIComponent(uuid)}/update`, {
+      name, labels, summary, attributes, bonfire_id: bid,
+    });
+  }
+
   async createEdge({ sourceUuid, targetUuid, edgeName, fact, bonfireId } = {}) {
     const bid = bonfireId || this.c.bonfireId;
     return this.c.request('POST', '/knowledge_graph/edge', {

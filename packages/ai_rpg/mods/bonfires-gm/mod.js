@@ -12,6 +12,7 @@
 
 const { BonfiresClient } = require('./bonfires-sdk');
 const { KGContext } = require('./kg-context');
+const { GameKG } = require('./game-kg');
 const WebSocket = require('ws');
 const path = require('path');
 const fs = require('fs');
@@ -40,13 +41,21 @@ function register(scope) {
   });
 
   const kg = new KGContext(sdk);
+  const gameKG = new GameKG({
+    sdk,
+    manifestPath: path.join(modDir, 'game-kg-manifest.json'),
+    bonfireId: config.bonfire_id,
+  });
 
   // ========================================================
   // STACK PUSH — Rich context from ai_rpg state
   // ========================================================
 
-  // Poll chatHistory for new messages and push to stack + Matrix
+  // Poll chatHistory for new messages and push to stack + Matrix + GameKG
   let lastChatHistoryLength = 0;
+  let lastTrackedPlayerCount = 0;
+  let lastTrackedLocationCount = 0;
+  let lastTrackedThingCount = 0;
 
   setInterval(() => {
     const history = scope.chatHistory || [];
@@ -70,7 +79,104 @@ function register(scope) {
         lastAssistant ? lastAssistant.content : ''
       );
     }
+
+    // Track new game objects for KG CRUD
+    trackNewGameObjects();
+
   }, 2000); // Check every 2 seconds
+
+  function trackNewGameObjects() {
+    // Track new players/NPCs
+    if (players.size > lastTrackedPlayerCount) {
+      for (const [id, player] of players) {
+        if (!gameKG.isTracked(id)) {
+          const type = player.isNPC ? 'npc' : 'player';
+          gameKG.trackEntity(type, {
+            gameId: id,
+            name: player.name,
+            description: player.description || '',
+            labels: [player.race, player.class].filter(Boolean),
+            attributes: { level: player.level, locationId: player.currentLocation },
+          });
+
+          // Structural edges
+          const locId = player.currentLocation;
+          const loc = gameLocations.get(locId);
+          if (loc?.name) {
+            gameKG.trackEdge(player.name, loc.name, 'LOCATED_AT', `${player.name} is at ${loc.name}`);
+          }
+        }
+      }
+      lastTrackedPlayerCount = players.size;
+    }
+
+    // Track new locations
+    if (gameLocations.size > lastTrackedLocationCount) {
+      for (const [id, loc] of gameLocations) {
+        if (!gameKG.isTracked(id) && loc.name) {
+          gameKG.trackEntity('location', {
+            gameId: id,
+            name: loc.name,
+            description: loc.description || '',
+            attributes: { regionId: loc.regionId },
+          });
+
+          // PART_OF region edge
+          if (loc.regionId) {
+            const region = regions.get(loc.regionId);
+            if (region?.name) {
+              gameKG.trackEdge(loc.name, region.name, 'PART_OF', `${loc.name} is in ${region.name}`);
+            }
+          }
+        }
+      }
+      lastTrackedLocationCount = gameLocations.size;
+    }
+
+    // Track new things (items/scenery)
+    if (things.size > lastTrackedThingCount) {
+      for (const [id, thing] of things) {
+        if (!gameKG.isTracked(id) && thing.name) {
+          const type = thing.isScenery ? 'scenery' : 'item';
+          gameKG.trackEntity(type, {
+            gameId: id,
+            name: thing.name,
+            description: thing.description || '',
+            labels: [thing.category].filter(Boolean),
+            attributes: { rarity: thing.rarity },
+          });
+        }
+      }
+      lastTrackedThingCount = things.size;
+    }
+
+    // Track new regions
+    for (const [id, region] of regions) {
+      if (!gameKG.isTracked(id) && region.name) {
+        gameKG.trackEntity('region', {
+          gameId: id,
+          name: region.name,
+          description: region.description || '',
+        });
+      }
+    }
+
+    // Track new factions
+    for (const [id, faction] of factions) {
+      if (!gameKG.isTracked(id) && faction.name) {
+        gameKG.trackEntity('faction', {
+          gameId: id,
+          name: faction.name,
+          description: faction.description || '',
+        });
+      }
+    }
+
+    // Flush if anything is pending
+    if (gameKG.pendingCount > 0) {
+      gameKG.flush().catch(err => console.warn('[game-kg] Flush failed:', err.message));
+    }
+  }
 
   async function pushToStack(requestBody, aiResponseOverride) {
     const playerMessage = requestBody?.playerMessage || '';
