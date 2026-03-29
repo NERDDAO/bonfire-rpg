@@ -4,6 +4,51 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ title | default("AI RPG Chat") }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --bg: #0d1f26;
+        --bg2: #111c23;
+        --surface: #152530;
+        --surface2: #1a2f3a;
+        --ember: #f5572a;
+        --ember-dim: rgba(245, 87, 42, 0.15);
+        --ember-glow: rgba(245, 87, 42, 0.07);
+        --text: #f3ffff;
+        --text-secondary: #8da8af;
+        --text-dim: #3d5a64;
+        --border: rgba(255, 255, 255, 0.07);
+        --border-bright: rgba(255, 255, 255, 0.14);
+        --radius: 8px;
+        --radius-pill: 100px;
+        --radius-icon: 12px;
+        --gm-glow: rgba(245, 87, 42, 0.06);
+        --gm-border: rgba(245, 87, 42, 0.4);
+        --user-msg-bg: rgba(245, 87, 42, 0.08);
+        --user-msg-border: rgba(245, 87, 42, 0.18);
+        --npc-msg-bg: rgba(141, 168, 175, 0.08);
+        --npc-msg-border: rgba(141, 168, 175, 0.18);
+      }
+      body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
+        pointer-events: none;
+        z-index: 9999;
+        opacity: 0.4;
+      }
+      @keyframes fadeUp {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: none; }
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.4; }
+      }
+    </style>
     <link rel="stylesheet" href="/css/main.css">
     <link rel="stylesheet" href="/css/map.css">
     {% if modStyles %}{% for mod in modStyles %}{% for style in mod.styles %}
@@ -181,6 +226,11 @@
                                     {% endif %}
                                 </div>
 
+                                <div class="mp-round-timer" id="mpRoundTimer" hidden>
+                                    <div class="mp-round-bar"><div class="mp-round-bar-fill" id="mpRoundBarFill"></div></div>
+                                    <span class="mp-round-time" id="mpRoundTime">0s</span>
+                                    <span class="mp-round-count" id="mpRoundCount">0 actions queued</span>
+                                </div>
                                 <div class="input-area">
                                     <textarea class="message-input" id="messageInput" placeholder="Type your message here..." rows="2"></textarea>
                                     <div class="send-controls">
@@ -191,6 +241,10 @@
                             </div>
 
                             <aside class="chat-sidebar" aria-label="Player and party overview">
+                                <section class="mp-roster" id="mpRoster" hidden>
+                                    <h3 class="mp-section-label">Players</h3>
+                                    <div class="mp-roster-list" id="mpRosterList"></div>
+                                </section>
                                 <section class="chat-player-section">
                                     <h3 class="chat-sidebar-heading" id="chatPlayerName">Player</h3>
                                     <div class="chat-player-card" id="chatPlayerCard">
@@ -238,6 +292,20 @@
                                     <div class="location-entity-grid chat-party-grid" id="chatPartyMembers"></div>
                                 </section>
                             </aside>
+                        </div>
+
+                        <div class="mp-ooc" id="mpOOC" hidden>
+                            <button class="mp-ooc-toggle" id="mpOOCToggle" type="button" aria-expanded="false">
+                                <span class="mp-section-label" style="margin:0">OOC Chat</span>
+                                <span class="mp-ooc-badge" id="mpOOCBadge" hidden>0</span>
+                            </button>
+                            <div class="mp-ooc-panel" id="mpOOCPanel" hidden>
+                                <div class="mp-ooc-messages" id="mpOOCMessages"></div>
+                                <form class="mp-ooc-form" id="mpOOCForm">
+                                    <input type="text" class="mp-ooc-input" id="mpOOCInput" placeholder="Say something OOC..." autocomplete="off">
+                                    <button type="submit" class="mp-ooc-send">Send</button>
+                                </form>
+                            </div>
                         </div>
                     </div>
                 </section>
@@ -22864,5 +22932,21 @@
             }
         }
     </script>
+
+    <div class="mp-death-overlay" id="mpDeathOverlay" hidden>
+        <div class="mp-death-card">
+            <div class="mp-death-accent"></div>
+            <div class="mp-death-content">
+                <h1 class="mp-death-title">You Have Fallen</h1>
+                <p class="mp-death-cause" id="mpDeathCause"></p>
+                <div class="mp-death-legend-box"><p class="mp-death-legend" id="mpDeathLegend"></p></div>
+                <p class="mp-death-location" id="mpDeathLocation"></p>
+                <button class="mp-death-cta" id="mpDeathCTA">Purchase New Life</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/matrix-client.js"></script>
+    <script src="/js/multiplayer.js"></script>
 </body>
 </html>
