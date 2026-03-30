@@ -4809,6 +4809,60 @@ class Player {
     }
 
     /**
+     * Create a Player (NPC) from the flat shape returned by the generateNpcs handler.
+     *
+     * `data` comes from handlers/npc.js flattenNpc() and contains:
+     *   name, description, shortDescription, role, class, race, gender,
+     *   personalityType, personalityTraits, personalityNotes, goals,
+     *   isHostile, healthAttribute, resistances, vulnerabilities,
+     *   relativeLevel, currency, faction, attributes (object { name: ratingString }),
+     *   location (string name, for region NPCs)
+     *
+     * `options` is caller-supplied context after the caller has resolved:
+     *   { location, factionId, attributes, level, imageId, currency }
+     *
+     * The caller is responsible for:
+     *   - Mapping attribute rating strings via mapNpcRatingToValue()
+     *   - Computing level from relativeLevel + base via clampLevel()
+     *   - Resolving faction name → ID via resolveFactionNameToId()
+     *   - Processing memories, skills, abilities, aliases (separate handler calls)
+     *
+     * @param {object} data - Flat NPC object from generateNpcs handler
+     * @param {object} [options={}] - Caller-supplied context
+     * @returns {Player}
+     */
+    static fromGeneratedObject(data, options = {}) {
+        if (!data || typeof data !== 'object') {
+            throw new Error('Player.fromGeneratedObject requires a data object');
+        }
+
+        return new Player({
+            name: data.name || options.name || 'Unnamed NPC',
+            description: data.description || '',
+            shortDescription: data.shortDescription || '',
+            class: data.class || data.role || 'citizen',
+            race: data.race || 'human',
+            gender: data.gender || undefined,
+            resistances: typeof data.resistances === 'string' ? data.resistances : '',
+            vulnerabilities: typeof data.vulnerabilities === 'string' ? data.vulnerabilities : '',
+            healthAttribute: data.healthAttribute || undefined,
+            personalityType: data.personalityType || null,
+            personalityTraits: data.personalityTraits || null,
+            personalityNotes: data.personalityNotes || null,
+            goals: Array.isArray(data.goals) ? data.goals : null,
+            isNPC: true,
+            isHostile: Boolean(data.isHostile),
+            // Caller-provided fields (already resolved/computed)
+            level: options.level ?? 1,
+            location: options.location ?? null,
+            factionId: options.factionId ?? undefined,
+            attributes: options.attributes ?? {},
+            imageId: options.imageId ?? null,
+            currency: options.currency ?? undefined,
+        });
+    }
+
+    /**
      * Create player from saved data
      */
     static fromJSON(data) {

@@ -79,16 +79,17 @@ const { MatrixNarrator } = require('./MatrixNarrator');
 // --- Structured output handlers (replacing inline XML parsing) ---
 const { chooseImportantMemories: chooseImportantMemoriesHandler } = require('./handlers/narrative.js');
 const { plausibilityCheck: plausibilityCheckHandler, equipBest: equipBestHandler } = require('./handlers/combat.js');
-const { npcSkillAssignments: npcSkillAssignmentsHandler, npcAbilityAssignments: npcAbilityAssignmentsHandler, npcAliasAssignments: npcAliasAssignmentsHandler } = require('./handlers/npc.js');
+const { generateNpcs, npcSkillAssignments: npcSkillAssignmentsHandler, npcAbilityAssignments: npcAbilityAssignmentsHandler, npcAliasAssignments: npcAliasAssignmentsHandler } = require('./handlers/npc.js');
 const { chooseExistingRegionExit: chooseExistingRegionExitHandler, selectRegionEntrance: selectRegionEntranceHandler } = require('./handlers/region.js');
 const { factionGeneration: factionGenerationHandler, factionRelationshipGeneration: factionRelationshipGenerationHandler, factionReputationGeneration: factionReputationGenerationHandler } = require('./handlers/faction.js');
 const { aiGenerateObject } = require('./ai.js');
 const { SkillArraySchema } = require('./schemas/skill.js');
 const { generateThings, alterThing, regenThingName } = require('./handlers/thing.js');
+const { generateLocation: generateLocationHandler } = require('./handlers/location.js');
 // NOTE: The following handlers are imported but not yet wired because their call sites
 // still rely on raw XML parsing (Location.fromXMLSnippet, parseThingsXml, etc.):
 //   generateNpcs, npcNameRegen (handlers/npc.js)
-//   generateLocation, regenLocationName (handlers/location.js)
+//   regenLocationName (handlers/location.js) — generateLocation is now wired
 //   regenThingName (handlers/thing.js) — generateThings + alterThing are now wired
 //   generateRegion, generateRegionStubLocations, regenRegionName (handlers/region.js)
 
@@ -12980,27 +12981,13 @@ async function generateNpcFromEvent({
         ];
 
         const requestStart = Date.now();
-        const npcResponse = await LLMClient.chatCompletion({
+        const parsedResult = await generateNpcs({
             messages,
             metadataLabel: 'npc_generation_single',
-            multimodal: Boolean(normalizedImageDataUrl)
         });
-
-        if (!npcResponse || !npcResponse.trim()) {
-            throw new Error('Empty NPC generation response');
-        }
-
-        LLMClient.logPrompt({
-            prefix: 'npc_generation_single',
-            metadataLabel: 'npc_generation_single',
-            systemPrompt: systemPrompt || '',
-            generationPrompt: generationPrompt || '',
-            response: npcResponse || ''
-        });
-
-        const parsedResult = parseLocationNpcs(npcResponse);
         const parsedNpcs = Array.isArray(parsedResult?.npcs) ? parsedResult.npcs : [];
         const generatedMemories = parsedResult?.memories instanceof Map ? parsedResult.memories : new Map();
+        const npcResponse = serializeNpcsToXml(parsedNpcs);
         let skillAssignments = new Map();
         let abilityAssignments = new Map();
         const currentRegionForNpcFollowup = resolvedRegion
@@ -13085,38 +13072,21 @@ async function generateNpcFromEvent({
             attributes[attrName] = mapNpcRatingToValue(rating);
         }
 
-        const npc = new Player({
-            name: npcData?.name || trimmedName,
-            description: npcData?.description || `${trimmedName} is drawn into the story.`,
-            shortDescription: npcData?.shortDescription || '',
-            class: npcData?.class || npcData?.role || 'citizen',
-            race: npcData?.race || 'human',
-            resistances: typeof npcData?.resistances === 'string' ? npcData.resistances : '',
-            vulnerabilities: typeof npcData?.vulnerabilities === 'string' ? npcData.vulnerabilities : '',
-            level: 1,
-            location: resolvedLocation?.id || null,
-            imageId: portraitImageId,
-            attributes,
-            factionId: factionResolution.id,
-            isNPC: true,
-            isHostile: Boolean(npcData?.isHostile),
-            healthAttribute: npcData?.healthAttribute,
-            personalityType: npcData?.personalityType || null,
-            personalityTraits: npcData?.personalityTraits || null,
-            personalityNotes: npcData?.personalityNotes || null,
-            goals: Array.isArray(npcData?.goals) ? npcData.goals : null
-        });
-
         const locationBaseLevel = Number.isFinite(resolvedLocation?.baseLevel)
             ? resolvedLocation.baseLevel
             : (Number.isFinite(resolvedRegion?.averageLevel) ? resolvedRegion.averageLevel : (currentPlayer?.level || 1));
         const relativeLevel = Number.isFinite(npcData?.relativeLevel) ? npcData.relativeLevel : 0;
         const npcLevel = clampLevel(locationBaseLevel + relativeLevel, locationBaseLevel);
-        try {
-            npc.setLevel(npcLevel);
-        } catch (_) {
-            // ignore failures to adjust level
-        }
+
+        if (!npcData.description) npcData.description = `${trimmedName} is drawn into the story.`;
+
+        const npc = Player.fromGeneratedObject(npcData, {
+            location: resolvedLocation?.id || null,
+            factionId: factionResolution.id,
+            attributes,
+            level: npcLevel,
+            imageId: portraitImageId,
+        });
 
         players.set(npc.id, npc);
 
@@ -14269,6 +14239,86 @@ function escapeXmlText(value) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&apos;');
+}
+
+/**
+ * Serialize an array of flat NPC objects (from generateNpcs handler) back to the
+ * XML format that the followup prompt templates (skills, abilities, aliases) expect
+ * as generatedNpcResults.
+ *
+ * @param {Array} npcs - Flat NPC objects from generateNpcs handler
+ * @returns {string} XML string
+ */
+function serializeNpcsToXml(npcs) {
+    if (!Array.isArray(npcs) || !npcs.length) {
+        return '<response><npcs></npcs></response>';
+    }
+    const npcLines = [];
+    const hostileLines = [];
+    for (const npc of npcs) {
+        if (!npc || typeof npc !== 'object') continue;
+        const tag = npc.isHostile ? 'hostile' : 'npc';
+        const lines = [];
+        lines.push(`    <${tag}>`);
+        lines.push(`      <name>${escapeXmlText(npc.name || '')}</name>`);
+        lines.push(`      <description>${escapeXmlText(npc.description || '')}</description>`);
+        lines.push(`      <shortDescription>${escapeXmlText(npc.shortDescription || '')}</shortDescription>`);
+        if (npc.role) lines.push(`      <role>${escapeXmlText(npc.role)}</role>`);
+        lines.push(`      <class>${escapeXmlText(npc.class || '')}</class>`);
+        lines.push(`      <race>${escapeXmlText(npc.race || '')}</race>`);
+        lines.push(`      <resistances>${escapeXmlText(npc.resistances || '')}</resistances>`);
+        lines.push(`      <vulnerabilities>${escapeXmlText(npc.vulnerabilities || '')}</vulnerabilities>`);
+        if (npc.gender) lines.push(`      <gender>${escapeXmlText(npc.gender)}</gender>`);
+        if (npc.faction) lines.push(`      <faction>${escapeXmlText(npc.faction)}</faction>`);
+        if (Number.isFinite(npc.relativeLevel)) lines.push(`      <relativeLevel>${npc.relativeLevel}</relativeLevel>`);
+        if (npc.healthAttribute) lines.push(`      <healthAttribute>${escapeXmlText(npc.healthAttribute)}</healthAttribute>`);
+        if (Number.isFinite(npc.currency)) lines.push(`      <currency>${npc.currency}</currency>`);
+        if (npc.location) lines.push(`      <location>${escapeXmlText(npc.location)}</location>`);
+        // Attributes
+        const attrSource = npc.attributes || {};
+        const attrKeys = Object.keys(attrSource);
+        if (attrKeys.length) {
+            lines.push('      <attributes>');
+            for (const key of attrKeys) {
+                lines.push(`        <attribute name="${escapeXmlText(key)}">${escapeXmlText(attrSource[key] || '')}</attribute>`);
+            }
+            lines.push('      </attributes>');
+        }
+        // Personality
+        if (npc.personalityType || npc.personalityTraits || npc.personalityNotes || (Array.isArray(npc.goals) && npc.goals.length)) {
+            lines.push('      <personality>');
+            if (npc.personalityType) lines.push(`        <type>${escapeXmlText(npc.personalityType)}</type>`);
+            if (npc.personalityTraits) lines.push(`        <traits>${escapeXmlText(npc.personalityTraits)}</traits>`);
+            if (npc.personalityNotes) lines.push(`        <notes>${escapeXmlText(npc.personalityNotes)}</notes>`);
+            if (Array.isArray(npc.goals) && npc.goals.length) {
+                lines.push('        <goals>');
+                for (const goal of npc.goals) {
+                    lines.push(`          <goal>${escapeXmlText(goal)}</goal>`);
+                }
+                lines.push('        </goals>');
+            }
+            lines.push('      </personality>');
+        }
+        lines.push(`    </${tag}>`);
+        if (npc.isHostile) {
+            hostileLines.push(...lines);
+        } else {
+            npcLines.push(...lines);
+        }
+    }
+    const parts = ['<response>'];
+    if (npcLines.length) {
+        parts.push('  <npcs>');
+        parts.push(...npcLines);
+        parts.push('  </npcs>');
+    }
+    if (hostileLines.length) {
+        parts.push('  <hostiles>');
+        parts.push(...hostileLines);
+        parts.push('  </hostiles>');
+    }
+    parts.push('</response>');
+    return parts.join('\n');
 }
 
 function buildNpcGenerationSeedXml(npc, { location = null } = {}) {
@@ -19658,25 +19708,12 @@ async function generateLocationNPCs({ location, systemPrompt, generationPrompt, 
         ];
 
         console.log('🧑‍🤝‍🧑 Requesting NPC generation for location', location.id);
-        const npcResponse = await LLMClient.chatCompletion({
+        const parsedResult = await generateNpcs({
             messages,
-            timeoutScale: npcCountHint,
-            metadataLabel: 'location_npc_generation'
-        });
-
-        if (!npcResponse || !npcResponse.trim()) {
-            throw new Error('Invalid NPC response from AI API');
-        }
-
-        LLMClient.logPrompt({
-            prefix: 'location_npc_generation',
             metadataLabel: 'location_npc_generation',
-            systemPrompt: systemPrompt || '',
-            generationPrompt: [generationPrompt, aiResponse, npcPromptWithContext].join('\n\n'),
-            response: npcResponse || ''
+            timeoutScale: npcCountHint,
         });
 
-        const parsedResult = parseLocationNpcs(npcResponse);
         let npcsAtLocation = SanitizedStringSet.fromArray(location.getNPCNames());
         let npcs = Array.isArray(parsedResult?.npcs) ? parsedResult.npcs : [];
         let npcMemoryMap = parsedResult?.memories instanceof Map ? parsedResult.memories : new Map();
@@ -19733,6 +19770,9 @@ async function generateLocationNPCs({ location, systemPrompt, generationPrompt, 
         let npcAliasAssignments = new Map();
         let abilitiesPromise = null;
         let aliasesPromise = null;
+
+        // Serialize structured NPC data back to XML for followup prompt templates
+        const npcResponse = serializeNpcsToXml(npcs);
 
         if (npcs.length) {
             const npcNamesForPrompt = npcs.map(npc => npc?.name || '').filter(Boolean);
@@ -19806,25 +19846,17 @@ async function generateLocationNPCs({ location, systemPrompt, generationPrompt, 
                 attributes[attrName] = mapNpcRatingToValue(rating);
             }
 
-            const npc = new Player({
-                name: npcData.name || 'Unnamed NPC',
-                description: npcData.description || '',
-                shortDescription: npcData.shortDescription || '',
-                level: 1,
+            const locationBaseLevel = Number.isFinite(location.baseLevel)
+                ? location.baseLevel
+                : (Number.isFinite(region?.averageLevel) ? region.averageLevel : (currentPlayer?.level || 1));
+            const npcRelativeLevel = Number.isFinite(npcData.relativeLevel) ? npcData.relativeLevel : 0;
+            const targetLevel = clampLevel(locationBaseLevel + npcRelativeLevel, locationBaseLevel);
+
+            const npc = Player.fromGeneratedObject(npcData, {
                 location: location.id,
-                attributes,
                 factionId: factionResolution.id,
-                class: npcData.class || null,
-                race: npcData.race,
-                resistances: typeof npcData.resistances === 'string' ? npcData.resistances : '',
-                vulnerabilities: typeof npcData.vulnerabilities === 'string' ? npcData.vulnerabilities : '',
-                isNPC: true,
-                isHostile: Boolean(npcData.isHostile),
-                healthAttribute: npcData.healthAttribute,
-                personalityType: npcData.personalityType || null,
-                personalityTraits: npcData.personalityTraits || null,
-                personalityNotes: npcData.personalityNotes || null,
-                goals: Array.isArray(npcData.goals) ? npcData.goals : null
+                attributes,
+                level: targetLevel,
             });
 
             if (Number.isFinite(npcData.currency) && npcData.currency >= 0 && typeof npc.setCurrency === 'function') {
@@ -19833,17 +19865,6 @@ async function generateLocationNPCs({ location, systemPrompt, generationPrompt, 
                 } catch (currencyError) {
                     console.warn(`Failed to set currency for generated NPC ${npcData.name || npc.id}:`, currencyError.message);
                 }
-            }
-
-            const locationBaseLevel = Number.isFinite(location.baseLevel)
-                ? location.baseLevel
-                : (Number.isFinite(region?.averageLevel) ? region.averageLevel : (currentPlayer?.level || 1));
-            const npcRelativeLevel = Number.isFinite(npcData.relativeLevel) ? npcData.relativeLevel : 0;
-            const targetLevel = clampLevel(locationBaseLevel + npcRelativeLevel, locationBaseLevel);
-            try {
-                npc.setLevel(targetLevel);
-            } catch (_) {
-                // ignore level adjustment failures
             }
 
             players.set(npc.id, npc);
@@ -20040,25 +20061,11 @@ async function generateRegionNPCs({ region, systemPrompt, generationPrompt, aiRe
 
         Globals.updateSpinnerText({ message: `Generating NPCs for region ${region.name || region.id}...` });
         console.log('🏘️ Requesting important NPC generation for region', region.id);
-        const npcResponse = await LLMClient.chatCompletion({
+        const parsedRegionResult = await generateNpcs({
             messages,
-            timeoutScale: regionLocations.length,
-            metadataLabel: 'region_npc_generation'
-        });
-
-        if (!npcResponse || !npcResponse.trim()) {
-            throw new Error('Invalid region NPC response from AI API');
-        }
-
-        LLMClient.logPrompt({
-            prefix: 'region_npc_generation',
             metadataLabel: 'region_npc_generation',
-            systemPrompt: systemPrompt || '',
-            generationPrompt: [generationPrompt, aiResponse, npcPrompt].join('\n\n'),
-            response: npcResponse || ''
+            timeoutScale: regionLocations.length,
         });
-
-        const parsedRegionResult = parseRegionNpcs(npcResponse);
         let parsedNpcs = Array.isArray(parsedRegionResult?.npcs) ? parsedRegionResult.npcs : [];
         let regionNpcMemories = parsedRegionResult?.memories instanceof Map ? parsedRegionResult.memories : new Map();
         const npctimeoutScale = Math.max(1, parsedNpcs.length || regionLocations.length || 1);
@@ -20094,6 +20101,10 @@ async function generateRegionNPCs({ region, systemPrompt, generationPrompt, aiRe
         let regionNpcAliasAssignments = new Map();
         let abilitiesPromise = null;
         let aliasesPromise = null;
+
+        // Serialize structured NPC data back to XML for followup prompt templates
+        const npcResponse = serializeNpcsToXml(parsedNpcs);
+
         if (parsedNpcs.length) {
             const npcNamesForLabel = parsedNpcs.map(npc => npc?.name || '').filter(Boolean);
 
@@ -20193,25 +20204,17 @@ async function generateRegionNPCs({ region, systemPrompt, generationPrompt, aiRe
                 targetLocation = regionLocations[0];
             }
 
-            const npc = new Player({
-                name: npcData.name || 'Unnamed NPC',
-                description: npcData.description || '',
-                shortDescription: npcData.shortDescription || '',
-                class: npcData.class || 'citizen',
-                race: npcData.race || 'human',
-                resistances: typeof npcData.resistances === 'string' ? npcData.resistances : '',
-                vulnerabilities: typeof npcData.vulnerabilities === 'string' ? npcData.vulnerabilities : '',
-                level: 1,
+            const baseLevelReference = Number.isFinite(region.averageLevel)
+                ? region.averageLevel
+                : (currentPlayer?.level || 1);
+            const npcRelativeLevel = Number.isFinite(npcData.relativeLevel) ? npcData.relativeLevel : 0;
+            const npcLevel = clampLevel(baseLevelReference + npcRelativeLevel, baseLevelReference);
+
+            const npc = Player.fromGeneratedObject(npcData, {
                 location: targetLocation ? targetLocation.id : null,
-                attributes,
                 factionId: factionResolution.id,
-                isNPC: true,
-                isHostile: Boolean(npcData.isHostile),
-                healthAttribute: npcData.healthAttribute,
-                personalityType: npcData.personalityType || null,
-                personalityTraits: npcData.personalityTraits || null,
-                personalityNotes: npcData.personalityNotes || null,
-                goals: Array.isArray(npcData.goals) ? npcData.goals : null
+                attributes,
+                level: npcLevel,
             });
 
             if (Number.isFinite(npcData.currency) && npcData.currency >= 0 && typeof npc.setCurrency === 'function') {
@@ -20220,17 +20223,6 @@ async function generateRegionNPCs({ region, systemPrompt, generationPrompt, aiRe
                 } catch (currencyError) {
                     console.warn(`Failed to set currency for region NPC ${npcData.name || npc.id}:`, currencyError.message);
                 }
-            }
-
-            const baseLevelReference = Number.isFinite(region.averageLevel)
-                ? region.averageLevel
-                : (currentPlayer?.level || 1);
-            const npcRelativeLevel = Number.isFinite(npcData.relativeLevel) ? npcData.relativeLevel : 0;
-            const npcLevel = clampLevel(baseLevelReference + npcRelativeLevel, baseLevelReference);
-            try {
-                npc.setLevel(npcLevel);
-            } catch (_) {
-                // ignore level adjustment failures
             }
 
             npc.originRegionId = region.id;
@@ -21957,22 +21949,17 @@ async function generateLocationFromPrompt(options = {}) {
         //console.log('📝 System Prompt:', systemPrompt);
         //console.log('📤 Full Request Payload:', JSON.stringify({ messages }, null, 2));
 
-        const aiResponse = await LLMClient.chatCompletion({
+        const locationData = await generateLocationHandler({
             messages,
             metadataLabel: 'location_generation',
             multimodal: Boolean(resolvedImageDataUrl)
         });
 
-        if (!aiResponse || !aiResponse.trim()) {
+        if (!locationData) {
             throw new Error('Invalid response from AI API');
         }
 
-        //console.log('📥 AI Raw Response:');
-        //console.log('='.repeat(50));
-        //console.log(aiResponse);
-        //console.log('='.repeat(50));
-
-        // Parse the XML response using Location.fromXMLSnippet()
+        // Parse the structured response using Location.fromGeneratedObject()
         const regionAverageLevel = templateOverrides.regionAverageLevel ?? stubMetadata.regionAverageLevel ?? null;
         const fallbackPlayerLevel = currentPlayer?.level || null;
         const relativeLevelBase = Number.isFinite(regionAverageLevel)
@@ -21988,14 +21975,14 @@ async function generateLocationFromPrompt(options = {}) {
             : (Number.isFinite(relativeLevelBase) ? relativeLevelBase : fallbackPlayerLevel);
 
         const location = isStubExpansion
-            ? Location.fromXMLSnippet(aiResponse, {
+            ? Location.fromGeneratedObject(locationData, {
                 existingLocation: stubLocation,
                 allowRename: Boolean(stubMetadata.allowRename),
                 baseLevelFallback: Number.isFinite(stubBaseLevel) ? stubBaseLevel : baseLevelFallback,
                 relativeLevelBase,
                 regionId: currentRegionContext?.id
             })
-            : Location.fromXMLSnippet(aiResponse, {
+            : Location.fromGeneratedObject(locationData, {
                 baseLevelFallback,
                 relativeLevelBase,
                 regionId: currentRegionContext?.id
@@ -22005,10 +21992,9 @@ async function generateLocationFromPrompt(options = {}) {
             throw new Error('Failed to parse location from AI response');
         }
 
-        const controllingFactionName = extractXmlTagValue(aiResponse, {
-            rootTag: 'location',
-            tagName: 'controllingFaction'
-        });
+        const controllingFactionName = typeof locationData.controllingFaction === 'string'
+            ? locationData.controllingFaction.trim()
+            : '';
         const factionResolution = resolveFactionNameToId(controllingFactionName, {
             allowBlank: isStubExpansion,
             fieldLabel: 'Location controlling faction'
@@ -22028,7 +22014,7 @@ async function generateLocationFromPrompt(options = {}) {
             }
         } else {
             if (!factionResolution.explicit) {
-                throw new Error('Location generation response missing <controllingFaction>. Use "None" if no faction controls this location.');
+                throw new Error('Location generation response missing controllingFaction. Use "None" if no faction controls this location.');
             }
             location.controllingFactionId = factionResolution.id;
         }
@@ -22038,7 +22024,7 @@ async function generateLocationFromPrompt(options = {}) {
             metadataLabel: 'location_generation',
             systemPrompt: systemPrompt || '',
             generationPrompt: generationPrompt || '',
-            response: aiResponse || ''
+            response: JSON.stringify(locationData) || ''
         });
 
         // Store the location in gameLocations
@@ -22071,7 +22057,7 @@ async function generateLocationFromPrompt(options = {}) {
                     location,
                     systemPrompt,
                     generationPrompt,
-                    aiResponse,
+                    aiResponse: JSON.stringify(locationData),
                     regionTheme: templateOverrides.locationTheme || templateOverrides.theme || (stubMetadata ? stubMetadata.themeHint : null)
                 });
             } catch (npcError) {

@@ -504,6 +504,304 @@ class Location {
     });
   }
 
+  /**
+   * Build a Location from a Zod-validated LocationSchema object.
+   * Mirrors fromXMLSnippet logic but skips XML parsing.
+   *
+   * @param {object} data - Validated LocationSchema: { name, description, shortDescription,
+   *   relativeLevel, baseLevel, numItems, numScenery, numNpcs, numHostiles, hasWeather,
+   *   controllingFaction, randomStoryEvents }
+   * @param {object} [options]
+   * @param {Location|null} [options.existingLocation] - Stub to promote (or existing location to update)
+   * @param {boolean} [options.allowRename=true]
+   * @param {number|null} [options.baseLevelFallback]
+   * @param {number|null} [options.relativeLevelBase]
+   * @param {string|null} [options.regionId]
+   * @returns {Location}
+   */
+  static fromGeneratedObject(data, options = {}) {
+    const {
+      existingLocation = null,
+      allowRename = true,
+      baseLevelFallback = null,
+      relativeLevelBase = null,
+      regionId = null
+    } = options || {};
+
+    // Build locationData mirroring the shape fromXMLSnippet produces after XML parsing.
+    // Numbers and booleans arrive already typed from Zod; just normalize strings.
+    const locationData = {};
+
+    locationData.name = typeof data.name === 'string' ? data.name.trim() : undefined;
+    locationData.description = typeof data.description === 'string' ? data.description.trim() : undefined;
+    locationData.shortDescription = typeof data.shortDescription === 'string' ? data.shortDescription.trim() : undefined;
+    locationData.relativeLevel = Number.isFinite(data.relativeLevel) ? data.relativeLevel : undefined;
+    locationData.baseLevel = Number.isFinite(data.baseLevel) ? data.baseLevel : undefined;
+    locationData.numItems = Number.isFinite(data.numItems) ? data.numItems : undefined;
+    locationData.numScenery = Number.isFinite(data.numScenery) ? data.numScenery : undefined;
+    locationData.numNpcs = Number.isFinite(data.numNpcs) ? data.numNpcs : undefined;
+    locationData.numHostiles = Number.isFinite(data.numHostiles) ? data.numHostiles : undefined;
+    locationData.hasWeather = typeof data.hasWeather === 'boolean' ? data.hasWeather : null;
+
+    // Random story events — already an array of strings from Zod (or undefined)
+    const extractedRandomEvents = Array.isArray(data.randomStoryEvents)
+      ? data.randomStoryEvents.map(s => (typeof s === 'string' ? s.trim() : '')).filter(Boolean)
+      : [];
+    const randomEvents = Location.#normalizeRandomEvents(extractedRandomEvents);
+    const randomEventsProvided = Array.isArray(data.randomStoryEvents);
+
+    // --- Stub metadata resolution (identical to fromXMLSnippet) ---
+    const stubMetadata = existingLocation?.stubMetadata || {};
+    const rawStubDescription = typeof stubMetadata.stubDescription === 'string' && stubMetadata.stubDescription.trim()
+      ? stubMetadata.stubDescription.trim()
+      : null;
+    const stubDescription = rawStubDescription
+      || (typeof stubMetadata.blueprintDescription === 'string' && stubMetadata.blueprintDescription.trim()
+        ? stubMetadata.blueprintDescription.trim()
+        : null)
+      || (typeof stubMetadata.shortDescription === 'string' && stubMetadata.shortDescription.trim()
+        ? stubMetadata.shortDescription.trim()
+        : null)
+      || (typeof existingLocation?.description === 'string' && existingLocation.description.trim()
+        ? existingLocation.description.trim()
+        : null)
+      || (typeof existingLocation?.shortDescription === 'string' && existingLocation.shortDescription.trim()
+        ? existingLocation.shortDescription.trim()
+        : null);
+    const stubShortDescription = (() => {
+      if (typeof stubMetadata.stubShortDescription === 'string' && stubMetadata.stubShortDescription.trim()) {
+        return stubMetadata.stubShortDescription.trim();
+      }
+      if (rawStubDescription) {
+        const candidate = typeof stubMetadata.shortDescription === 'string' ? stubMetadata.shortDescription.trim() : '';
+        if (candidate) {
+          return candidate;
+        }
+        const fallback = typeof existingLocation?.shortDescription === 'string' ? existingLocation.shortDescription.trim() : '';
+        if (fallback) {
+          return fallback;
+        }
+      }
+      return null;
+    })();
+    const stubRelativeLevel = Number.isFinite(stubMetadata.relativeLevel) ? stubMetadata.relativeLevel : null;
+    const stubBaseLevel = Number.isFinite(existingLocation?.baseLevel)
+      ? existingLocation.baseLevel
+      : (Number.isFinite(stubMetadata.computedBaseLevel) ? stubMetadata.computedBaseLevel : null);
+    const stubNumNpcs = existingLocation?.generationHints?.numNpcs ?? stubMetadata.numNpcs ?? null;
+    const stubNumHostiles = existingLocation?.generationHints?.numHostiles ?? stubMetadata.numHostiles ?? null;
+
+    // --- Authoritative enforcement helpers (identical to fromXMLSnippet) ---
+    const normalizeAuthoritativeText = (value) => {
+      if (typeof value !== 'string') {
+        return '';
+      }
+      return value.replace(/\s+/g, ' ').trim();
+    };
+
+    const enforceAuthoritativeText = (fieldLabel, stubValue) => {
+      if (!stubValue) {
+        return;
+      }
+      const aiValue = typeof locationData[fieldLabel] === 'string'
+        ? locationData[fieldLabel].trim()
+        : '';
+      const normalizedAi = normalizeAuthoritativeText(aiValue);
+      const normalizedStub = normalizeAuthoritativeText(stubValue);
+      if (aiValue && normalizedAi !== normalizedStub) {
+        if (normalizedAi.startsWith(normalizedStub)) {
+          console.warn(`Stub expansion expanded ${fieldLabel}; accepting AI text.`);
+          locationData[fieldLabel] = aiValue;
+          return;
+        }
+        console.warn(`Stub expansion returned ${fieldLabel} "${aiValue}" but stub requires "${stubValue}". Using stub value.`);
+      }
+      locationData[fieldLabel] = stubValue;
+    };
+
+    const enforceAuthoritativeNumber = (fieldLabel, stubValue) => {
+      if (!Number.isFinite(stubValue)) {
+        return;
+      }
+      const aiValue = Number.isFinite(locationData[fieldLabel]) ? locationData[fieldLabel] : null;
+      if (Number.isFinite(aiValue) && aiValue !== stubValue) {
+        console.warn(`Stub expansion returned ${fieldLabel} ${aiValue} but stub requires ${stubValue}. Using stub value.`);
+      }
+      locationData[fieldLabel] = stubValue;
+    };
+
+    if (existingLocation) {
+      enforceAuthoritativeText('shortDescription', stubShortDescription);
+      enforceAuthoritativeText('description', stubDescription);
+      enforceAuthoritativeNumber('relativeLevel', stubRelativeLevel);
+      enforceAuthoritativeNumber('baseLevel', stubBaseLevel);
+      enforceAuthoritativeNumber('numNpcs', stubNumNpcs);
+      enforceAuthoritativeNumber('numHostiles', stubNumHostiles);
+    }
+
+    const parsedShortDescription = typeof locationData.shortDescription === 'string'
+      ? locationData.shortDescription.trim()
+      : '';
+    const hasShortDescription = Boolean(parsedShortDescription);
+    if (!hasShortDescription) {
+      const locationName = locationData.name
+        || existingLocation?.name
+        || existingLocation?.id
+        || 'unknown';
+      console.warn(`[Location.fromGeneratedObject] Missing shortDescription for location "${locationName}".`);
+    }
+
+    // --- Existing location branch (stub promotion / update) ---
+    if (existingLocation) {
+      if (!locationData.description || typeof locationData.description !== 'string') {
+        console.log('Stub expansion missing description in AI response');
+        const fallbackDescription = existingLocation.description
+          || existingLocation.stubMetadata?.shortDescription
+          || existingLocation.name
+          || 'No description available.';
+        locationData.description = fallbackDescription;
+      }
+
+      let parsedBaseLevel = typeof locationData.baseLevel === 'number' && !Number.isNaN(locationData.baseLevel)
+        ? locationData.baseLevel
+        : null;
+
+      const parsedRelativeLevel = Number.isFinite(locationData.relativeLevel)
+        ? locationData.relativeLevel
+        : null;
+
+      if (!parsedBaseLevel) {
+        if (Number.isFinite(parsedRelativeLevel)) {
+          const baseReference = Number.isFinite(relativeLevelBase)
+            ? relativeLevelBase
+            : (Number.isFinite(existingLocation?.baseLevel) ? existingLocation.baseLevel : Number.isFinite(baseLevelFallback) ? baseLevelFallback : 1);
+          parsedBaseLevel = Math.round(baseReference + parsedRelativeLevel);
+        } else if (Number.isFinite(existingLocation?.baseLevel)) {
+          parsedBaseLevel = existingLocation.baseLevel;
+        } else if (Number.isFinite(baseLevelFallback)) {
+          parsedBaseLevel = baseLevelFallback;
+        }
+      }
+
+      parsedBaseLevel = Math.max(1, Math.round(parsedBaseLevel || 1));
+
+      if (!parsedBaseLevel) {
+        throw new Error('Stub expansion missing valid base level in AI response');
+      }
+
+      const existingHints = existingLocation?.generationHints || {};
+      const stubHints = existingLocation?.stubMetadata || {};
+      const resolveHint = (...values) => {
+        for (const value of values) {
+          if (value === null || value === undefined || value === '') {
+            continue;
+          }
+          const numeric = Number(value);
+          if (Number.isFinite(numeric)) {
+            return numeric;
+          }
+        }
+        return null;
+      };
+      const resolveHintPreserveExisting = (parsedValue, existingValue, stubValue) => {
+        const preserved = resolveHint(existingValue, stubValue);
+        if (preserved !== null) {
+          return preserved;
+        }
+        return resolveHint(parsedValue);
+      };
+      const resolveBooleanHint = (...values) => {
+        for (const value of values) {
+          if (typeof value === 'boolean') {
+            return value;
+          }
+        }
+        return null;
+      };
+
+      const promotionData = {
+        description: locationData.description,
+        shortDescription: hasShortDescription ? parsedShortDescription : undefined,
+        baseLevel: parsedBaseLevel,
+        generationHints: {
+          numItems: resolveHint(locationData.numItems, existingHints.numItems, stubHints.numItems),
+          numScenery: resolveHint(locationData.numScenery, existingHints.numScenery, stubHints.numScenery),
+          numNpcs: resolveHintPreserveExisting(locationData.numNpcs, existingHints.numNpcs, stubHints.numNpcs),
+          numHostiles: resolveHintPreserveExisting(locationData.numHostiles, existingHints.numHostiles, stubHints.numHostiles),
+          hasWeather: resolveBooleanHint(locationData.hasWeather, existingHints.hasWeather, stubHints.hasWeather, stubHints.locationHasWeather)
+        },
+        randomEvents: randomEventsProvided ? randomEvents : undefined,
+        npcIds: existingLocation.npcIds,
+        thingIds: existingLocation.thingIds
+      };
+
+      if (allowRename && locationData.name) {
+        promotionData.name = locationData.name;
+      }
+
+      if (existingLocation.isStub) {
+        existingLocation.promoteFromStub(promotionData);
+      } else {
+        if (promotionData.name) {
+          existingLocation.name = promotionData.name;
+        }
+        existingLocation.description = promotionData.description;
+        if (hasShortDescription) {
+          existingLocation.shortDescription = parsedShortDescription;
+        }
+        existingLocation.baseLevel = promotionData.baseLevel;
+      }
+
+      if (randomEventsProvided) {
+        existingLocation.randomEvents = randomEvents;
+      }
+
+      return existingLocation;
+    }
+
+    // --- New location branch ---
+    let baseLevel = typeof locationData.baseLevel === 'number' && !Number.isNaN(locationData.baseLevel)
+      ? locationData.baseLevel
+      : null;
+
+    const parsedRelativeLevel = Number.isFinite(locationData.relativeLevel)
+      ? locationData.relativeLevel
+      : null;
+
+    if (!baseLevel) {
+      if (Number.isFinite(parsedRelativeLevel)) {
+        const baseReference = Number.isFinite(relativeLevelBase)
+          ? relativeLevelBase
+          : Number.isFinite(baseLevelFallback)
+            ? baseLevelFallback
+            : 1;
+        baseLevel = baseReference + parsedRelativeLevel;
+      } else if (Number.isFinite(baseLevelFallback)) {
+        baseLevel = baseLevelFallback;
+      } else {
+        baseLevel = 1;
+      }
+    }
+
+    baseLevel = Math.max(1, Math.round(baseLevel));
+
+    return new Location({
+      description: locationData.description,
+      shortDescription: hasShortDescription ? parsedShortDescription : null,
+      baseLevel,
+      name: locationData.name,
+      regionId: regionId,
+      generationHints: {
+        numItems: locationData.numItems,
+        numScenery: locationData.numScenery,
+        numNpcs: locationData.numNpcs,
+        numHostiles: locationData.numHostiles,
+        hasWeather: typeof locationData.hasWeather === 'boolean' ? locationData.hasWeather : null
+      },
+      randomEvents
+    });
+  }
+
   get regionId() {
     return this.#regionId;
   }
