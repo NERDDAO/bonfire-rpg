@@ -1432,6 +1432,91 @@ class Thing {
     return thing;
   }
 
+  /**
+   * Construct a Thing from a Zod-validated AI response object (ThingSchema).
+   *
+   * Replaces parseThingsXml + inline new Thing({...}) construction.
+   * The caller is responsible for:
+   *   - Computing level via clampLevel(baseLevel + relativeLevel)
+   *   - Scaling attributeBonuses via scaleAttributeBonusesForItem()
+   *   - Sanitizing metadata via sanitizeMetadataObject()
+   *   - Providing locationId / ownerId context
+   *
+   * @param {object} data - Zod-validated ThingSchema object
+   * @param {object} [options]
+   * @param {string} [options.thingType] - Override resolved thingType ('item'|'scenery')
+   * @param {number} [options.level] - Pre-computed level (caller does clampLevel math)
+   * @param {number} [options.relativeLevel] - Clamped relative level
+   * @param {Array}  [options.scaledAttributeBonuses] - Pre-scaled attribute bonuses
+   * @param {object} [options.metadata] - Pre-built sanitized metadata object
+   * @param {string} [options.name] - Override name (e.g. from requestedName)
+   * @param {string} [options.description] - Override description (e.g. extended with details)
+   * @returns {Thing}
+   */
+  static fromGeneratedObject(data, options = {}) {
+    if (!data || typeof data !== 'object') {
+      throw new Error('Thing.fromGeneratedObject requires a data object');
+    }
+
+    const {
+      thingType: thingTypeOverride = null,
+      level = null,
+      relativeLevel: relativeLevelOverride = null,
+      scaledAttributeBonuses = null,
+      metadata = null,
+      name: nameOverride = null,
+      description: descriptionOverride = null,
+    } = options;
+
+    const name = nameOverride || (data.name || '').trim();
+    if (!name) {
+      throw new Error('Thing.fromGeneratedObject: name is required');
+    }
+
+    // Resolve thingType from itemOrScenery field or override
+    const normalizedType = (data.itemOrScenery || '').trim().toLowerCase();
+    const resolvedThingType = thingTypeOverride || (normalizedType === 'scenery' ? 'scenery' : 'item');
+
+    // Merge causeStatusEffect from separate OnTarget/OnEquipper fields
+    const causeStatusEffect = (function buildCauseEffects() {
+      const target = data.causeStatusEffectOnTarget
+        ? { ...data.causeStatusEffectOnTarget, applyToTarget: true }
+        : null;
+      const equipper = data.causeStatusEffectOnEquipper
+        ? { ...data.causeStatusEffectOnEquipper, applyToEquipper: true }
+        : null;
+      const entries = [];
+      if (target) entries.push(target);
+      if (equipper) entries.push(equipper);
+      return entries.length ? entries : null;
+    }());
+
+    // Boolean flags
+    const booleanFlagKeys = ['isVehicle', 'isCraftingStation', 'isProcessingStation', 'isHarvestable', 'isSalvageable'];
+    const booleanFlags = {};
+    for (const key of booleanFlagKeys) {
+      if (data[key] !== undefined && data[key] !== null) {
+        booleanFlags[key] = Boolean(data[key]);
+      }
+    }
+
+    return new Thing({
+      name,
+      description: descriptionOverride || data.description || '',
+      shortDescription: data.shortDescription || null,
+      thingType: resolvedThingType,
+      rarity: data.rarity || null,
+      itemTypeDetail: data.type || null,
+      slot: data.slot || null,
+      attributeBonuses: scaledAttributeBonuses || data.attributeBonuses || null,
+      causeStatusEffect,
+      level,
+      relativeLevel: relativeLevelOverride ?? data.relativeLevel ?? null,
+      metadata: metadata || null,
+      ...booleanFlags,
+    });
+  }
+
   #sanitizeSlot(value) {
     if (value === null || value === undefined) {
       return null;

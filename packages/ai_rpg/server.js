@@ -84,11 +84,12 @@ const { chooseExistingRegionExit: chooseExistingRegionExitHandler, selectRegionE
 const { factionGeneration: factionGenerationHandler, factionRelationshipGeneration: factionRelationshipGenerationHandler, factionReputationGeneration: factionReputationGenerationHandler } = require('./handlers/faction.js');
 const { aiGenerateObject } = require('./ai.js');
 const { SkillArraySchema } = require('./schemas/skill.js');
+const { generateThings, alterThing, regenThingName } = require('./handlers/thing.js');
 // NOTE: The following handlers are imported but not yet wired because their call sites
 // still rely on raw XML parsing (Location.fromXMLSnippet, parseThingsXml, etc.):
 //   generateNpcs, npcNameRegen (handlers/npc.js)
 //   generateLocation, regenLocationName (handlers/location.js)
-//   generateThings, alterThing, regenThingName (handlers/thing.js)
+//   regenThingName (handlers/thing.js) — generateThings + alterThing are now wired
 //   generateRegion, generateRegionStubLocations, regenRegionName (handlers/region.js)
 
 Globals.baseDir = __dirname;
@@ -10561,22 +10562,15 @@ async function generateInventoryForCharacter({ character, characterDescriptor = 
         timeoutScale = Math.max(1, Number(timeoutScale) || 1);
 
         const inventoryMetadataLabel = `inventory_generation_${character.name.replace(/[^A-Za-z0-9]/g, '')}`;
-        const inventoryContent = await LLMClient.chatCompletion({
+        const inventoryResult = await generateThings({
             messages,
-            timeoutScale,
             metadataLabel: inventoryMetadataLabel
         });
 
-        if (!inventoryContent) {
+        const items = inventoryResult?.things || [];
+        if (!items.length) {
             throw new Error('Empty inventory response from AI');
         }
-
-        const items = await parseThingsXml(inventoryContent, {
-            isInventory: true,
-            promptEnv,
-            parseXMLTemplate,
-            prepareBasePromptContext
-        });
 
         const createdThings = [];
         for (const item of items) {
@@ -10653,20 +10647,13 @@ async function generateInventoryForCharacter({ character, characterDescriptor = 
                 const booleanFlags = extractThingBooleanFlags(item);
                 Object.assign(metadata, booleanFlags);
 
-                const thing = new Thing({
-                    name: item.name,
-                    description: extendedDescription || item.description || 'Inventory item',
-                    shortDescription: item.shortDescription ?? null,
+                const thing = Thing.fromGeneratedObject(item, {
                     thingType: 'item',
-                    rarity: item.rarity || null,
-                    itemTypeDetail: item.type || null,
-                    slot: item.slot || null,
-                    attributeBonuses: scaledAttributeBonuses,
-                    causeStatusEffect: item.causeStatusEffect,
                     level: computedLevel,
                     relativeLevel,
+                    scaledAttributeBonuses,
                     metadata,
-                    ...booleanFlags
+                    description: extendedDescription || undefined
                 });
                 things.set(thing.id, thing);
                 character.addInventoryItem(thing, { suppressNpcEquip: true });
@@ -10711,7 +10698,7 @@ async function generateInventoryForCharacter({ character, characterDescriptor = 
             metadataLabel: inventoryMetadataLabel,
             systemPrompt: systemPrompt || '',
             generationPrompt: generationPrompt || '',
-            response: inventoryContent || ''
+            response: JSON.stringify(inventoryResult, null, 2)
         });
 
         if (autoEquip) {
@@ -11007,24 +10994,14 @@ async function generateItemsByNames({
                 ];
 
                 const requestStart = Date.now();
-                let requestPayloadForLog = null;
-                const inventoryContent = await LLMClient.chatCompletion({
+                const thingGenLabel = `thing_generation_${requestLabel.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').toLowerCase() || `auto_${index + 1}`}`;
+                const generatedResult = await generateThings({
                     messages,
-                    metadataLabel: `thing_generation_${requestLabel.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').toLowerCase() || `auto_${index + 1}`}`,
-                    captureRequestPayload: (payload) => { requestPayloadForLog = payload; }
+                    metadataLabel: thingGenLabel
                 });
 
-                if (!inventoryContent || !inventoryContent.trim()) {
-                    throw new Error('Empty item generation response from AI');
-                }
-
                 const apiDurationSeconds = (Date.now() - requestStart) / 1000;
-                const parsedItems = await parseThingsXml(inventoryContent, {
-                    isInventory: Boolean(owner),
-                    promptEnv,
-                    parseXMLTemplate,
-                    prepareBasePromptContext
-                }) || [];
+                const parsedItems = generatedResult?.things || [];
                 const itemData = parsedItems.find(it => it?.name) || parsedItems[0] || null;
                 if (!itemData) {
                     throw new Error('No item data returned by AI');
@@ -11139,33 +11116,14 @@ async function generateItemsByNames({
                 const booleanFlags = extractThingBooleanFlags(itemData);
                 Object.assign(metadata, booleanFlags);
 
-                const thing = new Thing({
+                const thing = Thing.fromGeneratedObject(itemData, {
+                    thingType: effectiveThingType,
                     name: finalName,
                     description: composedDescription,
-                    shortDescription: itemData?.shortDescription ?? null,
-                    thingType: effectiveThingType,
-                    rarity: itemData?.rarity,
-                    type: itemData?.type,
-                    slot: itemData?.slot,
-                    attributeBonuses: scaledAttributeBonuses,
-                    causeStatusEffect: (function buildCauseEffects() {
-                        const target = itemData?.causeStatusEffectOnTarget
-                            ? { ...itemData.causeStatusEffectOnTarget, applyToTarget: true }
-                            : null;
-                        const equipper = itemData?.causeStatusEffectOnEquipper
-                            ? { ...itemData.causeStatusEffectOnEquipper, applyToEquipper: true }
-                            : null;
-                        const legacy = itemData?.causeStatusEffect || null;
-                        const entries = [];
-                        if (target) entries.push(target);
-                        if (equipper) entries.push(equipper);
-                        if (legacy && !entries.length) entries.push(legacy);
-                        return entries.length ? entries : null;
-                    }()),
                     level: computedLevel,
                     relativeLevel,
-                    metadata,
-                    ...booleanFlags
+                    scaledAttributeBonuses,
+                    metadata
                 });
 
                 const ownerLevelForLog = owner && Number.isFinite(owner?.level)
@@ -11202,7 +11160,7 @@ async function generateItemsByNames({
                     metadataLabel: 'event_item',
                     systemPrompt: parsedTemplate.systemPrompt || '',
                     generationPrompt: parsedTemplate.generationPrompt || '',
-                    response: inventoryContent || '',
+                    response: JSON.stringify(generatedResult, null, 2),
                     sections: [
                         {
                             title: 'Duration',
@@ -11212,8 +11170,7 @@ async function generateItemsByNames({
                             title: 'Generated Item',
                             content: JSON.stringify(thing.toJSON ? thing.toJSON() : { id: thing.id, name: thing.name }, null, 2)
                         }
-                    ],
-                    requestPayload: requestPayloadForLog
+                    ]
                 });
 
                 return thing;
@@ -11446,30 +11403,17 @@ async function alterThingByPrompt({
     ];
 
     const requestStart = Date.now();
-    let requestPayloadForLog = null;
-    const aiResponse = await LLMClient.chatCompletion({
+    const updatedItem = await alterThing({
         messages,
-        temperature: parsedTemplate.temperature,
         metadataLabel: 'alter_thing',
-        captureRequestPayload: (payload) => { requestPayloadForLog = payload; }
+        temperature: parsedTemplate.temperature
     });
 
     const apiDurationSeconds = (Date.now() - requestStart) / 1000;
 
-    if (!aiResponse || !aiResponse.trim()) {
-        throw new Error('Empty item alteration response from AI.');
-    }
-
-    const parsedItems = await parseThingsXml(aiResponse, {
-        promptEnv,
-        parseXMLTemplate,
-        prepareBasePromptContext
-    });
-    if (!Array.isArray(parsedItems) || !parsedItems.length) {
+    if (!updatedItem || typeof updatedItem !== 'object') {
         throw new Error('Thing alteration response did not include an item definition.');
     }
-
-    const updatedItem = parsedItems[0];
     const updatedShortDescriptionRaw = typeof updatedItem.shortDescription === 'string'
         ? updatedItem.shortDescription.trim()
         : '';
@@ -11694,8 +11638,7 @@ async function alterThingByPrompt({
         metadataLabel: 'event_item_alter',
         systemPrompt: parsedTemplate.systemPrompt || '',
         generationPrompt: parsedTemplate.generationPrompt || '',
-        response: aiResponse || '',
-        requestPayload: requestPayloadForLog,
+        response: JSON.stringify(updatedItem, null, 2),
         sections: [
             {
                 title: 'Duration',
@@ -17852,29 +17795,13 @@ async function generateLocationThingsForLocation({ location } = {}) {
         { role: 'user', content: parsedTemplate.generationPrompt }
     ];
 
-    const aiResponse = await LLMClient.chatCompletion({
+    const generatedResult = await generateThings({
         messages,
-        temperature: parsedTemplate.temperature,
-        metadataLabel: 'location_things_generation'
-    });
-
-    if (!aiResponse || !aiResponse.trim()) {
-        return [];
-    }
-
-    LLMClient.logPrompt({
-        prefix: 'location_things_generation',
         metadataLabel: 'location_things_generation',
-        systemPrompt: parsedTemplate.systemPrompt || '',
-        generationPrompt: parsedTemplate.generationPrompt || '',
-        response: aiResponse || ''
+        temperature: parsedTemplate.temperature
     });
 
-    const parsedItems = await parseThingsXml(aiResponse, {
-        promptEnv,
-        parseXMLTemplate,
-        prepareBasePromptContext
-    });
+    const parsedItems = generatedResult?.things || [];
     if (!parsedItems.length) {
         return [];
     }
@@ -17937,20 +17864,12 @@ async function generateLocationThingsForLocation({ location } = {}) {
 
         const cleanedMetadata = sanitizeMetadataObject(metadata);
 
-        const thing = new Thing({
-            name: itemData.name,
-            description: itemData.description || 'An unspecified object.',
-            shortDescription: itemData.shortDescription ?? null,
+        const thing = Thing.fromGeneratedObject(itemData, {
             thingType,
-            rarity: itemData.rarity || null,
-            itemTypeDetail: itemData.type || null,
-            slot: itemData.slot || null,
-            attributeBonuses: thingType === 'item' ? scaledAttributeBonuses : [],
-            causeStatusEffect: itemData.causeStatusEffect,
             level: computedLevel,
             relativeLevel,
-            metadata: cleanedMetadata,
-            ...booleanFlags
+            scaledAttributeBonuses: thingType === 'item' ? scaledAttributeBonuses : [],
+            metadata: cleanedMetadata
         });
 
         things.set(thing.id, thing);
