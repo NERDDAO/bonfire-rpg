@@ -80,7 +80,7 @@ const { MatrixNarrator } = require('./MatrixNarrator');
 const { chooseImportantMemories: chooseImportantMemoriesHandler } = require('./handlers/narrative.js');
 const { plausibilityCheck: plausibilityCheckHandler, equipBest: equipBestHandler } = require('./handlers/combat.js');
 const { generateNpcs, npcSkillAssignments: npcSkillAssignmentsHandler, npcAbilityAssignments: npcAbilityAssignmentsHandler, npcAliasAssignments: npcAliasAssignmentsHandler } = require('./handlers/npc.js');
-const { chooseExistingRegionExit: chooseExistingRegionExitHandler, selectRegionEntrance: selectRegionEntranceHandler } = require('./handlers/region.js');
+const { chooseExistingRegionExit: chooseExistingRegionExitHandler, selectRegionEntrance: selectRegionEntranceHandler, generateRegion: generateRegionHandler, generateRegionStubLocations: generateRegionStubLocationsHandler } = require('./handlers/region.js');
 const { factionGeneration: factionGenerationHandler, factionRelationshipGeneration: factionRelationshipGenerationHandler, factionReputationGeneration: factionReputationGenerationHandler } = require('./handlers/faction.js');
 const { aiGenerateObject } = require('./ai.js');
 const { SkillArraySchema } = require('./schemas/skill.js');
@@ -91,7 +91,7 @@ const { generateLocation: generateLocationHandler } = require('./handlers/locati
 //   generateNpcs, npcNameRegen (handlers/npc.js)
 //   regenLocationName (handlers/location.js) — generateLocation is now wired
 //   regenThingName (handlers/thing.js) — generateThings + alterThing are now wired
-//   generateRegion, generateRegionStubLocations, regenRegionName (handlers/region.js)
+//   regenRegionName (handlers/region.js) — generateRegion + generateRegionStubLocations are now wired
 
 Globals.baseDir = __dirname;
 Globals.sceneSummaries = new SceneSummaries();
@@ -9320,37 +9320,55 @@ async function expandRegionEntryStub(stubLocation) {
                 { role: 'user', content: userContent }
             ];
 
+            let stubData;
             try {
                 console.log(`🌐 Generating locations for region stub ${regionName} (${targetRegionId})...`);
-                stubResponse = await LLMClient.chatCompletion({
+                stubData = await generateRegionStubLocationsHandler({
                     messages,
                     metadataLabel: 'region_stub_locations',
                     multimodal: Boolean(resolvedImageDataUrl)
-                });
-                LLMClient.logPrompt({
-                    prefix: 'region_stub_locations',
-                    metadataLabel: 'region_stub_locations',
-                    systemPrompt: stubPrompt.systemPrompt || '',
-                    generationPrompt: stubPrompt.generationPrompt || '',
-                    response: stubResponse || ''
                 });
             } catch (error) {
                 console.warn('Failed to generate region stub locations:', error.message);
                 return null;
             }
 
-            const locationDefinitions = parseRegionStubLocations(stubResponse);
-            const exitDefinitions = parseRegionExitsResponse(stubResponse);
-            const vehicleDefinitions = parseRegionVehicleDefinitions(stubResponse);
-            const weatherDefinition = parseRegionWeatherResponse(stubResponse);
-            const characterConcepts = extractRegionCharacterConcepts(stubResponse);
-            const numImportantNPCs = extractRegionImportantNpcCount(stubResponse);
-            const secrets = extractRegionSecrets(stubResponse);
-            const regionShortDescription = parseRegionStubShortDescription(stubResponse);
-            const responseControllingFactionName = extractXmlTagValue(stubResponse, {
-                rootTag: 'region',
-                tagName: 'controllingFaction'
-            });
+            // Serialize structured data as assistant context for follow-up prompts
+            stubResponse = JSON.stringify(stubData);
+
+            const locationDefinitions = stubData.locations || [];
+            const exitDefinitions = (stubData.connectedRegions || []).map(cr => ({
+                name: cr.regionName,
+                description: cr.regionDescription || '',
+                relativeLevel: Number.isFinite(cr.relativeLevel) ? cr.relativeLevel : 0,
+                relationship: cr.relationship || 'Adjacent',
+                exitLocation: cr.exitLocation || null,
+                exitVehicle: cr.exitVehicle || null,
+                controllingFaction: cr.controllingFaction || null,
+            }));
+            const vehicleDefinitions = (stubData.vehicleDefinitions || []).map(vd => ({
+                sourceLocationName: vd.sourceLocationName,
+                name: vd.name,
+                description: vd.description || null,
+                shortDescription: vd.shortDescription || null,
+                controllingFaction: vd.controllingFaction || null,
+                size: vd.size,
+                icon: vd.icon || '🚗',
+                destinations: Array.isArray(vd.destinations) ? vd.destinations.map(d => ({
+                    regionName: d.regionName || null,
+                    locationName: d.locationName || null,
+                })) : [],
+            }));
+            const weatherDefinition = stubData.weather || null;
+            const characterConcepts = Array.isArray(stubData.characterConcepts)
+                ? stubData.characterConcepts.map(s => typeof s === 'string' ? s.trim() : '').filter(Boolean)
+                : [];
+            const numImportantNPCs = Number.isFinite(stubData.numImportantNPCs) ? stubData.numImportantNPCs : null;
+            const secrets = Array.isArray(stubData.secrets)
+                ? stubData.secrets.map(s => typeof s === 'string' ? s.trim() : '').filter(Boolean)
+                : [];
+            const regionShortDescription = stubData.shortDescription || null;
+            const responseControllingFactionName = stubData.controllingFaction || null;
             const responseFactionResolution = resolveFactionNameToId(responseControllingFactionName, {
                 allowBlank: Boolean(stubControllingFactionId),
                 fieldLabel: 'Region controlling faction'
@@ -23907,43 +23925,52 @@ async function generateRegionFromPrompt(options = {}) {
         report('region:request', { message: 'Requesting region layout from AI...' });
 
         console.log('🗺️ Requesting region generation from AI...');
-        const aiResponse = await LLMClient.chatCompletion({
+        const regionData = await generateRegionHandler({
             messages,
-            //temperature: parsedTemplate.temperature,
             metadataLabel: 'region_generation',
             multimodal: Boolean(normalizedImageDataUrl)
         });
 
-        if (!aiResponse || !aiResponse.trim()) {
-            throw new Error('Invalid response from AI API for region generation');
-        }
-
         console.log('📥 Region AI Response received.');
         report('region:response', { message: 'Region response received.' });
 
-        LLMClient.logPrompt({
-            prefix: 'region_generation',
-            metadataLabel: 'region_generation',
-            systemPrompt: systemPrompt || '',
-            generationPrompt: generationPrompt || '',
-            response: aiResponse || ''
-        });
-
-        const region = Region.fromXMLSnippet(aiResponse);
-        await ensureRegionNameAllowed(region);
-        const controllingFactionName = extractXmlTagValue(aiResponse, {
-            rootTag: 'region',
-            tagName: 'controllingFaction'
-        });
+        // Resolve controlling faction from the structured output
+        const controllingFactionName = regionData.controllingFaction || null;
         const factionResolution = resolveFactionNameToId(controllingFactionName, {
             fieldLabel: 'Region controlling faction'
         });
         if (!factionResolution.explicit) {
-            throw new Error('Region generation response missing <controllingFaction>. Use "None" if no faction controls this region.');
+            throw new Error('Region generation response missing controllingFaction. Use "None" if no faction controls this region.');
         }
-        region.controllingFactionId = factionResolution.id;
-        const connectedRegionDefinitions = parseRegionExitsResponse(aiResponse);
-        const vehicleDefinitions = parseRegionVehicleDefinitions(aiResponse);
+
+        const region = Region.fromGeneratedObject(regionData, {
+            controllingFactionId: factionResolution.id,
+        });
+        await ensureRegionNameAllowed(region);
+
+        // Connected regions and vehicles are returned as-is for downstream processing
+        const connectedRegionDefinitions = (regionData.connectedRegions || []).map(cr => ({
+            name: cr.regionName,
+            description: cr.regionDescription || '',
+            relativeLevel: Number.isFinite(cr.relativeLevel) ? cr.relativeLevel : 0,
+            relationship: cr.relationship || 'Adjacent',
+            exitLocation: cr.exitLocation || null,
+            exitVehicle: cr.exitVehicle || null,
+            controllingFaction: cr.controllingFaction || null,
+        }));
+        const vehicleDefinitions = (regionData.vehicleDefinitions || []).map(vd => ({
+            sourceLocationName: vd.sourceLocationName,
+            name: vd.name,
+            description: vd.description || null,
+            shortDescription: vd.shortDescription || null,
+            controllingFaction: vd.controllingFaction || null,
+            size: vd.size,
+            icon: vd.icon || '🚗',
+            destinations: Array.isArray(vd.destinations) ? vd.destinations.map(d => ({
+                regionName: d.regionName || null,
+                locationName: d.locationName || null,
+            })) : [],
+        }));
         regions.set(region.id, region);
         report('region:parse', { message: 'Interpreting region blueprint...' });
 
@@ -23972,6 +23999,9 @@ async function generateRegionFromPrompt(options = {}) {
             });
             throw new Error(`Failed to instantiate region structure for "${region?.name || region?.id || 'unknown region'}": ${instantiationError.message}`);
         }
+
+        // Serialize structured data as assistant context for follow-up prompts
+        const aiResponse = JSON.stringify(regionData);
 
         const entranceInfo = await chooseRegionEntrance({
             region,

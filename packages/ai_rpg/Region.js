@@ -484,6 +484,124 @@ class Region {
     });
   }
 
+  /**
+   * Build a Region from an ExtendedRegionSchema / RegionStubSchema structured object.
+   *
+   * Mirrors `fromXMLSnippet` but accepts already-typed data from Zod instead of XML.
+   * Connected regions, vehicle definitions, and controlling faction name are NOT
+   * consumed here — they are returned as-is by the structured output handler for
+   * the caller (server.js) to process through its own resolution logic.
+   *
+   * @param {object} data - Validated Zod object (ExtendedRegionSchema shape)
+   * @param {object} [options]
+   * @param {string} [options.id]               - Pre-assigned region id (for stub expansion)
+   * @param {string} [options.parentRegionId]    - Parent region id
+   * @param {number} [options.averageLevel]      - Explicit average level override
+   * @param {string} [options.controllingFactionId] - Pre-resolved faction id
+   * @param {object} [options.vehicleInfo]       - Pre-existing VehicleInfo to attach
+   * @returns {Region}
+   */
+  static fromGeneratedObject(data, options = {}) {
+    const {
+      id = null,
+      parentRegionId = null,
+      averageLevel = null,
+      controllingFactionId = null,
+      vehicleInfo = null,
+    } = options;
+
+    // --- Region-level fields ---
+    const regionName = typeof data.regionName === 'string' ? data.regionName.trim() : null;
+    const regionDescription = typeof data.regionDescription === 'string' ? data.regionDescription.trim() : null;
+    const shortDescription = typeof data.shortDescription === 'string' ? data.shortDescription.trim() : null;
+
+    if (!regionName) {
+      throw new Error('Region structured output missing regionName.');
+    }
+    if (!regionDescription) {
+      throw new Error('Region structured output missing regionDescription.');
+    }
+
+    let resolvedAverageLevel = null;
+    if (Number.isFinite(averageLevel)) {
+      resolvedAverageLevel = averageLevel;
+    } else if (Number.isFinite(data.relativeLevel)) {
+      resolvedAverageLevel = Math.max(1, Math.round(data.relativeLevel));
+    }
+
+    const numImportantNPCs = Number.isFinite(data.numImportantNPCs) ? data.numImportantNPCs : null;
+
+    const characterConcepts = Array.isArray(data.characterConcepts)
+      ? data.characterConcepts.map(s => typeof s === 'string' ? s.trim() : '').filter(Boolean)
+      : [];
+
+    const enemyConcepts = Array.isArray(data.enemyConcepts)
+      ? data.enemyConcepts.map(s => typeof s === 'string' ? s.trim() : '').filter(Boolean)
+      : [];
+
+    const secrets = Array.isArray(data.secrets)
+      ? data.secrets.map(s => typeof s === 'string' ? s.trim() : '').filter(Boolean)
+      : [];
+
+    // --- Location blueprints ---
+    const locationBlueprints = Array.isArray(data.locations)
+      ? data.locations.map((loc, index) => {
+        const name = typeof loc.name === 'string' ? loc.name.trim() : null;
+        if (!name) {
+          return Region.#normalizeBlueprint({ name: `Location ${index + 1}`, description: '' });
+        }
+        return Region.#normalizeBlueprint({
+          name,
+          description: typeof loc.description === 'string' ? loc.description.trim() : '',
+          shortDescription: typeof loc.shortDescription === 'string' ? loc.shortDescription.trim() : null,
+          exits: Array.isArray(loc.exits) ? loc.exits : [],
+          relativeLevel: Number.isFinite(loc.relativeLevel) ? loc.relativeLevel : null,
+          numNpcs: Number.isFinite(loc.numNpcs) ? loc.numNpcs : null,
+          numHostiles: Number.isFinite(loc.numHostiles) ? loc.numHostiles : null,
+          controllingFaction: typeof loc.controllingFaction === 'string' ? loc.controllingFaction.trim() : null,
+          hasWeather: typeof loc.hasWeather === 'boolean' ? loc.hasWeather : null,
+        });
+      })
+      : [];
+
+    // --- Random events ---
+    const randomEvents = Array.isArray(data.randomStoryEvents)
+      ? data.randomStoryEvents.map(s => typeof s === 'string' ? s.trim() : '').filter(Boolean)
+      : [];
+
+    // --- Weather ---
+    // The structured output delivers weather already in the shape #normalizeWeatherDefinition
+    // expects: { hasDynamicWeather, seasonWeather: [{ seasonName, weatherTypes: [{ name,
+    // description, relativeFrequency, durationRange: { minMinutes, maxMinutes } }] }] }.
+    // Pass it through normalization for validation and defensive cleanup.
+    const weather = data.weather || null;
+
+    // --- Construct ---
+    const constructorArgs = {
+      name: regionName,
+      description: regionDescription,
+      shortDescription,
+      locations: locationBlueprints,
+      averageLevel: resolvedAverageLevel,
+      randomEvents,
+      characterConcepts,
+      enemyConcepts,
+      secrets,
+      numImportantNPCs,
+      weather,
+      controllingFactionId: controllingFactionId || null,
+      vehicleInfo: vehicleInfo || null,
+    };
+    if (id) {
+      constructorArgs.id = id;
+    }
+    if (parentRegionId) {
+      constructorArgs.parentRegionId = parentRegionId;
+    }
+
+    return new Region(constructorArgs);
+  }
+
   static parseWeatherDefinitionFromXmlSnippet(xmlSnippet) {
     if (!xmlSnippet || typeof xmlSnippet !== 'string') {
       throw new Error('Region weather XML snippet must be a string.');
