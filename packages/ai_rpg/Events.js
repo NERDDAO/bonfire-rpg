@@ -11,11 +11,7 @@ const StatusEffect = require("./StatusEffect.js");
 const { eventChecks } = require('./handlers/event.js');
 const { questGenerate, questCheck, questRewardProse } = require('./handlers/quest.js');
 const { alterLocation } = require('./handlers/location.js');
-// NOTE: alterNpc handler not wired yet — NPCAlterSchema only covers { name, description }
-// but _parseCharacterAlterXml returns a rich object (statusEffects, abilities, inventory,
-// attributes, personality, etc.) that _applyCharacterAlteration requires. The alter_npc
-// call site continues to use LLMClient.chatCompletion + _parseCharacterAlterXml until
-// the NPCAlterSchema is expanded to cover the full character alteration shape.
+const { alterNpc } = require('./handlers/npc.js');
 
 const BASE_TIMEOUT_MS = 120000;
 const DEFAULT_STATUS_DURATION = 3;
@@ -6999,56 +6995,26 @@ class Events {
                 { role: "user", content: promptData.generationPrompt },
             ];
 
-            let requestPayloadForLog = null;
-            let responsePayloadForLog = null;
-            const requestOptions = {
+            const alterOptions = {
                 messages,
                 metadataLabel: "alter_npc",
-                timeoutMs: this._baseTimeout,
-                requiredRegex: /<npc\b[\s\S]*?<\/npc>/i,
-                captureRequestPayload: (payload) => {
-                    requestPayloadForLog = payload;
-                },
-                captureResponsePayload: (payload) => {
-                    responsePayloadForLog = payload;
-                },
             };
 
             if (typeof promptData.temperature === "number") {
-                requestOptions.temperature = promptData.temperature;
+                alterOptions.temperature = promptData.temperature;
             } else if (Number.isInteger(defaultTemperature)) {
-                requestOptions.temperature = defaultTemperature;
+                alterOptions.temperature = defaultTemperature;
             }
 
-            let aiContent;
+            let parsedCharacter;
             try {
-                aiContent = await LLMClient.chatCompletion(requestOptions);
+                parsedCharacter = await alterNpc(alterOptions);
             } catch (error) {
                 throw new Error(
                     `Alter NPC request failed for "${npcName}": ${error.message}`,
                 );
             }
 
-            if (!aiContent.trim()) {
-                throw new Error(`Alter NPC response for "${npcName}" was empty.`);
-            }
-
-            const safeName =
-                (npc.name || "npc")
-                    .toLowerCase()
-                    .replace(/[^a-z0-9]+/g, "_")
-                    .replace(/^_+|_+$/g, "") || "npc";
-            LLMClient.logPrompt({
-                prefix: `alter_npc_${safeName}`,
-                metadataLabel: "alter_npc",
-                systemPrompt: promptData.systemPrompt,
-                generationPrompt: promptData.generationPrompt,
-                response: aiContent.trim() || "(empty response)",
-                requestPayload: requestPayloadForLog,
-                responsePayload: responsePayloadForLog,
-            });
-
-            const parsedCharacter = this._parseCharacterAlterXml(aiContent);
             if (!parsedCharacter) {
                 throw new Error(
                     `Failed to parse character alteration response for "${npcName}".`,

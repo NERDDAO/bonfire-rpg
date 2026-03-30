@@ -82,16 +82,15 @@ const { plausibilityCheck: plausibilityCheckHandler, equipBest: equipBestHandler
 const { generateNpcs, npcSkillAssignments: npcSkillAssignmentsHandler, npcAbilityAssignments: npcAbilityAssignmentsHandler, npcAliasAssignments: npcAliasAssignmentsHandler } = require('./handlers/npc.js');
 const { chooseExistingRegionExit: chooseExistingRegionExitHandler, selectRegionEntrance: selectRegionEntranceHandler, generateRegion: generateRegionHandler, generateRegionStubLocations: generateRegionStubLocationsHandler } = require('./handlers/region.js');
 const { factionGeneration: factionGenerationHandler, factionRelationshipGeneration: factionRelationshipGenerationHandler, factionReputationGeneration: factionReputationGenerationHandler } = require('./handlers/faction.js');
-const { aiGenerateObject } = require('./ai.js');
+const { aiGenerateObject, aiGenerateText } = require('./ai.js');
 const { SkillArraySchema } = require('./schemas/skill.js');
 const { generateThings, alterThing, regenThingName } = require('./handlers/thing.js');
 const { generateLocation: generateLocationHandler } = require('./handlers/location.js');
-// NOTE: The following handlers are imported but not yet wired because their call sites
-// still rely on raw XML parsing (Location.fromXMLSnippet, parseThingsXml, etc.):
-//   generateNpcs, npcNameRegen (handlers/npc.js)
-//   regenLocationName (handlers/location.js) — generateLocation is now wired
-//   regenThingName (handlers/thing.js) — generateThings + alterThing are now wired
-//   regenRegionName (handlers/region.js) — generateRegion + generateRegionStubLocations are now wired
+// NOTE: Name regen handlers (npcNameRegen, regenThingName, regenLocationName,
+// regenRegionName) return simple { name } but the call sites parse multi-candidate
+// responses (candidates[], shortTemplate, descriptionTemplate, etc.) via dedicated
+// parsers (parseNpcNameRegenResponse, parseThingNameRegenResponse, etc.).
+// These need richer schemas before they can be wired.
 
 Globals.baseDir = __dirname;
 Globals.sceneSummaries = new SceneSummaries();
@@ -21206,14 +21205,12 @@ async function generateImagePromptFromTemplate(prompts, options = {}) {
         console.log('🤖 Requesting image prompt generation from LLM...');
 
         const requestStart = Date.now();
-        const responseText = await LLMClient.chatCompletion({
+        const result = await aiGenerateText({
             messages,
             metadataLabel: 'image_prompt_generation',
-            validateXML: false,
-            waitAfterError: 20,
-            runInBackground: true
         });
 
+        const responseText = result.text;
         if (!responseText || !responseText.trim()) {
             throw new Error('Invalid response from AI API');
         }

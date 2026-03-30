@@ -76,6 +76,40 @@ const ShortDescriptionSchema = z.object({
     shortDescription: z.string().describe('A brief one-line description'),
 });
 
+// --- Status Effect Generation (from StatusEffect.generateFromDescriptions) ---
+
+const StatusEffectAttributeModifierSchema = z.object({
+    attribute: z.string().describe('Attribute name'),
+    modifier: z.number().describe('Modifier value (positive or negative, non-zero)'),
+});
+
+const StatusEffectSkillModifierSchema = z.object({
+    skill: z.string().describe('Skill name'),
+    modifier: z.number().describe('Modifier value (positive or negative, non-zero)'),
+});
+
+const StatusEffectNeedBarSchema = z.object({
+    name: z.string().describe('Need bar name'),
+    delta: z.number().describe('Delta value (positive or negative, non-zero)'),
+});
+
+const GeneratedStatusEffectSchema = z.object({
+    sourceDescription: z.string().describe('The original description seed this effect was generated from'),
+    name: z.string().nullable().optional().describe('Effect name'),
+    description: z.string().describe('What the effect does'),
+    duration: z.string().nullable().optional().describe('How long it lasts'),
+    attributes: z.array(StatusEffectAttributeModifierSchema).optional().default([])
+        .describe('Attribute modifiers'),
+    skills: z.array(StatusEffectSkillModifierSchema).optional().default([])
+        .describe('Skill modifiers'),
+    needBars: z.array(StatusEffectNeedBarSchema).optional().default([])
+        .describe('Need bar deltas'),
+});
+
+const StatusEffectGenerationSchema = z.object({
+    effects: z.array(GeneratedStatusEffectSchema).describe('Generated status effects'),
+});
+
 module.exports = {
     PersonalitySchema,
     AttributeSchema,
@@ -86,4 +120,9 @@ module.exports = {
     FactionReputationRewardSchema,
     RewardsSchema,
     ShortDescriptionSchema,
+    StatusEffectGenerationSchema,
+    GeneratedStatusEffectSchema,
+    StatusEffectAttributeModifierSchema,
+    StatusEffectSkillModifierSchema,
+    StatusEffectNeedBarSchema,
 };

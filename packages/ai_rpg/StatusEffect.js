@@ -1,5 +1,7 @@
 const Utils = require('./Utils.js');
 const LLMClient = require('./LLMClient.js');
+const { aiGenerateObject } = require('./ai.js');
+const { StatusEffectGenerationSchema } = require('./schemas/shared.js');
 
 class StatusEffect {
     constructor({ name, description, attributes, skills, needBars, duration, appliedAt } = {}) {
@@ -231,40 +233,19 @@ class StatusEffect {
             { role: 'user', content: parsedTemplate.generationPrompt.trim() }
         ];
 
-        const response = await LLMClient.chatCompletion({
+        const { object } = await aiGenerateObject({
+            schema: StatusEffectGenerationSchema,
             messages,
-            metadataLabel: 'status_effect_generate'
+            metadataLabel: 'status_effect_generate',
         });
 
-        if (typeof LLMClient.logPrompt === 'function') {
-            LLMClient.logPrompt({
-                prefix: 'status_effect',
-                metadataLabel: 'status_effect_generate',
-                systemPrompt: messages[0]?.content || '',
-                generationPrompt: messages[1]?.content || '',
-                response
-            });
-        }
-
-        const doc = Utils.parseXmlDocument(response, 'text/xml');
-        const errorNode = doc.getElementsByTagName('parsererror')[0];
-        if (errorNode) {
-            throw new Error(`Failed to parse status effect XML: ${errorNode.textContent}`);
-        }
-
-        const textFromTag = (parent, tagName) => {
-            const node = parent.getElementsByTagName(tagName)?.[0];
-            return node ? node.textContent : null;
-        };
-
-        const effectNodes = Array.from(doc.getElementsByTagName('effect'));
-        if (!effectNodes.length) {
+        if (!Array.isArray(object.effects) || !object.effects.length) {
             throw new Error('Status effect generation returned no effects');
         }
 
         const results = new Map();
-        for (const node of effectNodes) {
-            const sourceDescription = textFromTag(node, 'sourceDescription')?.trim();
+        for (const effect of object.effects) {
+            const sourceDescription = effect.sourceDescription?.trim();
             if (!sourceDescription) {
                 throw new Error('Generated status effect is missing sourceDescription');
             }
@@ -272,68 +253,21 @@ class StatusEffect {
                 throw new Error(`Duplicate status effect generated for "${sourceDescription}"`);
             }
 
-            const name = textFromTag(node, 'name')?.trim() || null;
-            const description = textFromTag(node, 'description')?.trim();
+            const description = effect.description?.trim();
             if (!description) {
                 throw new Error(`Generated status effect for "${sourceDescription}" is missing description`);
             }
 
-            const durationText = textFromTag(node, 'duration');
-            let duration = null;
-            if (durationText !== null && durationText !== undefined && durationText.trim() !== '') {
-                duration = durationText.trim();
-            }
+            const name = effect.name?.trim() || null;
+            const duration = effect.duration?.trim() || null;
 
-            const attributes = Array.from(node.getElementsByTagName('attribute'))
-                .map(attrNode => {
-                    const attributeName = textFromTag(attrNode, 'name')?.trim();
-                    const modifierValue = Number(textFromTag(attrNode, 'modifier'));
-                    if (!attributeName) {
-                        throw new Error(`Status effect "${sourceDescription}" attribute entry missing name`);
-                    }
-                    if (!Number.isFinite(modifierValue)) {
-                        throw new Error(`Status effect "${sourceDescription}" attribute "${attributeName}" has invalid modifier`);
-                    }
-                    if (modifierValue === 0) {
-                        return null;
-                    }
-                    return { attribute: attributeName, modifier: modifierValue };
-                })
-                .filter(Boolean);
-
-            const skills = Array.from(node.getElementsByTagName('skill'))
-                .map(skillNode => {
-                    const skillName = textFromTag(skillNode, 'name')?.trim();
-                    const modifierValue = Number(textFromTag(skillNode, 'modifier'));
-                    if (!skillName) {
-                        throw new Error(`Status effect "${sourceDescription}" skill entry missing name`);
-                    }
-                    if (!Number.isFinite(modifierValue)) {
-                        throw new Error(`Status effect "${sourceDescription}" skill "${skillName}" has invalid modifier`);
-                    }
-                    if (modifierValue === 0) {
-                        return null;
-                    }
-                    return { skill: skillName, modifier: modifierValue };
-                })
-                .filter(Boolean);
-
-            const needBars = Array.from(node.getElementsByTagName('needBar'))
-                .map(needNode => {
-                    const barName = textFromTag(needNode, 'name')?.trim();
-                    const deltaValue = Number(textFromTag(needNode, 'delta'));
-                    if (!barName) {
-                        throw new Error(`Status effect "${sourceDescription}" need bar entry missing name`);
-                    }
-                    if (!Number.isFinite(deltaValue)) {
-                        throw new Error(`Status effect "${sourceDescription}" need bar "${barName}" has invalid delta`);
-                    }
-                    if (deltaValue === 0) {
-                        return null;
-                    }
-                    return { name: barName, delta: deltaValue };
-                })
-                .filter(Boolean);
+            // Filter out zero-value modifiers
+            const attributes = (effect.attributes || [])
+                .filter(a => a.attribute && Number.isFinite(a.modifier) && a.modifier !== 0);
+            const skills = (effect.skills || [])
+                .filter(s => s.skill && Number.isFinite(s.modifier) && s.modifier !== 0);
+            const needBars = (effect.needBars || [])
+                .filter(n => n.name && Number.isFinite(n.delta) && n.delta !== 0);
 
             results.set(sourceDescription, new StatusEffect({
                 name,

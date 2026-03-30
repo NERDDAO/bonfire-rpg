@@ -11,7 +11,7 @@
 
 const { aiGenerateObject } = require('../ai.js');
 const {
-    RegionSchema,
+    ExtendedRegionSchema,
     RegionStubSchema,
     RegionExitSchema,
     EntranceSelectionSchema,
@@ -33,7 +33,7 @@ const {
  */
 async function generateRegion({ messages, metadataLabel = 'region_generation', ...overrides }) {
     const { object } = await aiGenerateObject({
-        schema: RegionSchema,
+        schema: ExtendedRegionSchema,
         messages,
         metadataLabel,
         ...overrides,

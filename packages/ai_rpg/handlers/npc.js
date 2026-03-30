@@ -151,18 +151,17 @@ async function generateNpcs({ messages, metadataLabel = 'location_npc_generation
 }
 
 /**
- * Alter an NPC's description after an event.
+ * Alter an NPC after an event.
  * Replaces _parseCharacterAlterXml (Events.js) for the alter_npc metadataLabel.
  *
- * NOTE: The NPCAlterSchema captures { name, description } which is the minimal
- * shape needed for physical transformation events. The full alter_npc response
- * in Events.js parses a richer character object; callers that need the full
- * shape should continue using the legacy parser until the schema is expanded.
+ * Returns the same shape as _parseCharacterAlterXml: { name, description,
+ * shortDescription, role, class, race, relativeLevel, currency, personality,
+ * attributes (as { name: value } object), statusEffects, abilities, inventory }.
  *
  * @param {object} options
  * @param {Array} options.messages - Prompt messages array
  * @param {string} [options.metadataLabel='alter_npc']
- * @returns {Promise<{name: string, description?: string}>}
+ * @returns {Promise<object>} - Parsed character alteration object
  */
 async function alterNpc({ messages, metadataLabel = 'alter_npc', ...overrides }) {
     const { object } = await aiGenerateObject({
@@ -171,7 +170,33 @@ async function alterNpc({ messages, metadataLabel = 'alter_npc', ...overrides })
         metadataLabel,
         ...overrides,
     });
-    return object;
+
+    // Convert attributes from array of { name, value } to { name: value } object
+    // to match _parseCharacterAlterXml return shape.
+    const attributes = {};
+    if (Array.isArray(object.attributes)) {
+        for (const attr of object.attributes) {
+            if (attr && attr.name) {
+                attributes[attr.name] = attr.value || '';
+            }
+        }
+    }
+
+    return {
+        name: object.name || null,
+        description: object.description || '',
+        shortDescription: object.shortDescription || '',
+        role: object.role || '',
+        class: object.class || '',
+        race: object.race || '',
+        relativeLevel: Number.isFinite(object.relativeLevel) ? object.relativeLevel : null,
+        currency: Number.isFinite(object.currency) ? object.currency : null,
+        personality: object.personality || null,
+        attributes,
+        statusEffects: Array.isArray(object.statusEffects) ? object.statusEffects : [],
+        abilities: Array.isArray(object.abilities) ? object.abilities : [],
+        inventory: Array.isArray(object.inventory) ? object.inventory : [],
+    };
 }
 
 /**

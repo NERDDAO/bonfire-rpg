@@ -58,12 +58,53 @@ const NPCArraySchema = z.object({
 });
 
 // --- NPC Alteration (from Events.js alter_npc) ---
-// Shape: { name, description } — only physical transformations pass through
+// Full shape matching _parseCharacterAlterXml: name, description, shortDescription,
+// role, class, race, relativeLevel, currency, personality, attributes, statusEffects,
+// abilities, inventory.
+
+const NPCAlterAbilitySchema = z.object({
+    name: z.string().describe('Ability name'),
+    description: z.string().optional().default('').describe('What the ability does'),
+    type: z.string().optional().default('').describe('Ability type (e.g. Active, Passive, Triggered)'),
+    level: z.number().nullable().optional().describe('Ability level'),
+});
+
+const NPCAlterStatusEffectSchema = z.object({
+    description: z.string().describe('Status effect description'),
+    duration: z.string().nullable().optional().describe('Duration string (e.g. "3 turns", "permanent")'),
+});
+
+const NPCAlterAttributeSchema = z.object({
+    name: z.string().describe('Attribute name'),
+    value: z.string().describe('Attribute value or rating'),
+});
+
+const NPCAlterPersonalitySchema = z.object({
+    type: z.string().optional().default('').describe('Personality archetype'),
+    traits: z.string().optional().default('').describe('Personality traits'),
+    notes: z.string().optional().default('').describe('Additional personality notes'),
+});
 
 const NPCAlterSchema = z.object({
-    name: z.string().describe('Name of the NPC being altered'),
-    description: z.string().nullable().optional()
-        .describe('Description of the physical transformation'),
+    name: z.string().nullable().optional().describe('NPC name (null if unchanged)'),
+    description: z.string().optional().default('').describe('Full description'),
+    shortDescription: z.string().optional().default('').describe('One-line summary'),
+    role: z.string().optional().default('').describe('NPC role'),
+    class: z.string().optional().default('').describe('Character class'),
+    race: z.string().optional().default('').describe('Race or species'),
+    relativeLevel: z.number().nullable().optional()
+        .describe('Power level relative to player (-10 to 10), null if unchanged'),
+    currency: z.number().nullable().optional().describe('Currency amount, null if unchanged'),
+    personality: NPCAlterPersonalitySchema.nullable().optional()
+        .describe('Personality details'),
+    attributes: z.array(NPCAlterAttributeSchema).optional().default([])
+        .describe('Attribute name-value pairs'),
+    statusEffects: z.array(NPCAlterStatusEffectSchema).optional().default([])
+        .describe('Status effects on the NPC'),
+    abilities: z.array(NPCAlterAbilitySchema).optional().default([])
+        .describe('NPC abilities'),
+    inventory: z.array(z.string()).optional().default([])
+        .describe('Inventory item names'),
 });
 
 // --- Skill Assignments (from parseNpcSkillAssignments) ---
@@ -128,6 +169,10 @@ module.exports = {
     NPCArraySchema,
     NPCMemorySchema,
     NPCAlterSchema,
+    NPCAlterAbilitySchema,
+    NPCAlterStatusEffectSchema,
+    NPCAlterAttributeSchema,
+    NPCAlterPersonalitySchema,
     SkillAssignmentSchema,
     NPCSkillAssignmentSchema,
     SkillPriorityEntrySchema,
