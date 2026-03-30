@@ -46,26 +46,12 @@ Faction roster:
 {% endfor %}
 </factions>
 
-Output only XML with this schema:
-<factionReputationTiers>
-  <faction>
-    <name>Faction Name</name>
-    <reputationTiers>
-      <tier>
-        <threshold>-60|-20|0|20|60</threshold>
-        <label>Tier Label</label>
-        <perks>
-          <perk>Perk text.</perk>
-        </perks>
-        <penalties>
-          <penalty>Penalty text.</penalty>
-        </penalties>
-      </tier>
-    </reputationTiers>
-  </faction>
-</factionReputationTiers>
+For each faction, produce one entry containing the faction's exact name and exactly five reputation tiers with thresholds at -60, -20, 0, 20, 60. Each tier must include:
+- threshold: The numeric threshold value
+- label: A tier label
+- perks: At least one perk description
+- penalties: At least one penalty description
 
-Each listed faction name must appear exactly once in &lt;factionReputationTiers&gt;.
-Return only XML.
+Each listed faction name must appear exactly once.
     </generationPrompt>
 </template>

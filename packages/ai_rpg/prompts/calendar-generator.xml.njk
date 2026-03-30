@@ -1,8 +1,8 @@
 <template>
   <description>Generate a calendar definition for the game world using setting context.</description>
   <systemPrompt>You are an expert worldbuilder and systems designer.
-Return ONLY valid XML matching the required schema.
-Do not include markdown fences, explanations, or extra tags outside the schema.</systemPrompt>
+Respond with the requested information in a structured format.
+Do not include markdown fences, explanations, or extra commentary.</systemPrompt>
   <generationPrompt>
 Create a calendar definition for this setting:
 <setting>
@@ -17,58 +17,16 @@ Create a calendar definition for this setting:
 </setting>
 
 Requirements:
-1. Output exactly one &lt;calendarDefinition&gt; root element.
-2. Include 12 months under &lt;months&gt; with positive integer lengthDays.
-3. Include 7 weekdays under &lt;weekdays&gt;.
-4. Include 4 seasons under &lt;seasons&gt;.
-5. Include exactly 10 holidays under &lt;holidays&gt;.
-6. Each season must include a &lt;description&gt; field (1-2 concise sentences describing climate/atmosphere/typical conditions).
-7. Each holiday must include a &lt;description&gt; field (1-2 concise sentences describing what it commemorates and how it is observed).
-8. Ensure each month has seasonName matching one of the season names.
-9. If the setting can reasonably be assumed to be on Earth (modern, historical, or near-future Earth), use a standard Gregorian calendar:
+1. Include a yearName for the calendar.
+2. Include 12 months, each with a name, lengthDays (positive integer), and seasonName matching one of the season names.
+3. Include 7 weekdays.
+4. Include 4 seasons, each with a name, description (1-2 concise sentences on climate/atmosphere), startMonth, startDay, dayLengthMinutes (minutes of sunlight), and timeDescriptions (a list of entries each with timeOfDay as an integer hour in 24-hour format and a description of lighting conditions; always start with hour 0).
+5. Include exactly 10 holidays, each with a name, description (1-2 sentences on what it commemorates and how observed), month, and day (integer, no suffixes).
+6. If the setting can reasonably be assumed to be on Earth (modern, historical, or near-future Earth), use a standard Gregorian calendar:
    - Months exactly: January (31), February (28), March (31), April (30), May (31), June (30), July (31), August (31), September (30), October (31), November (30), December (31).
    - Weekdays exactly: Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday.
    - Seasons exactly: Spring, Summer, Autumn, Winter.
-10. If the setting is not reasonably Earth-based, keep names thematically appropriate to the setting.
-11. Ensure all output is setting-coherent and internally consistent.
-
-Schema:
-<calendarDefinition>
-  <yearName>...</yearName>
-  <months>
-    <month>
-      <name>...</name>
-      <lengthDays>30</lengthDays>
-      <seasonName>...</seasonName>
-    </month>
-  </months>
-  <weekdays>
-    <weekday>...</weekday>
-  </weekdays>
-  <seasons>
-    <season>
-      <name>...</name>
-      <description>...</description>
-      <startMonth>...</startMonth>
-      <startDay>1</startDay>
-      <dayLengthMinutes><!-- minutes of sunlight --></dayLengthMinutes>
-      <timeDescriptions>
-        <timeDescription>
-          <timeOfDay><!-- hour in 24-hour format, no units, for example 6 --></timeOfDay>
-          <description><!-- Short description of how light it is at that time, such as "very dark", "it's getting light", "bright daylight", "it's getting dark", "late twilight", etc. --></description>
-        </timeDescription>
-        <!-- repeat for as many times of day as needed to capture significant changes in lighting conditions throughout the day. description will apply until the next timeOfDay specified. Always start with 0 -->
-      </timeDescriptions>
-    </season>
-  </seasons>
-  <holidays>
-    <holiday>
-      <name>...</name>
-      <description>...</description>
-      <month>...</month>
-      <day><!-- day of the month, no units or suffixes, ex. 15 --></day>
-    </holiday>
-  </holidays>
-</calendarDefinition>
+7. If the setting is not reasonably Earth-based, keep names thematically appropriate to the setting.
+8. Ensure all output is setting-coherent and internally consistent.
   </generationPrompt>
 </template>

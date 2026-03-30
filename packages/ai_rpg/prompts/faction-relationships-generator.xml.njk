@@ -46,21 +46,11 @@ Faction roster:
 {% endfor %}
 </factions>
 
-Output only XML with this schema:
-<factionRelationships>
-  <faction>
-    <name>Faction Name</name>
-    <relations>
-      <relation>
-        <factionName>Other Faction Name</factionName>
-        <status>allied|neutral|hostile|rival</status>
-        <notes>One sentence describing the precise nature of the relationship.</notes>
-      </relation>
-    </relations>
-  </faction>
-</factionRelationships>
+For each faction, produce one entry containing the faction's exact name and a list of relations to every other faction (no self-relations). Each relation must include:
+- factionName: The exact name of the other faction
+- status: One of allied, neutral, hostile, or rival
+- notes: One sentence describing the precise nature of the relationship
 
-Each listed faction name must appear exactly once in &lt;factionRelationships&gt;.
-Return only XML.
+Each listed faction name must appear exactly once.
     </generationPrompt>
 </template>

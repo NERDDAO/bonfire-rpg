@@ -22,15 +22,10 @@ Skills to generate:
 {% for skill in skillsToGenerate %}- {{ skill.name }}
 {% endfor %}
 
-Generate descriptions and an attribute for each skill in the above "skills to generate" list in XML format using the following structure:
-<skills>
-  <skill>
-    <name>Skill Name</name>
-    <description>What the skill enables.</description>
-    <attribute>Associated Attribute Name</attribute>
-  </skill>
-  ...
-</skills>
+Generate descriptions and an attribute for each skill in the above "skills to generate" list. For each skill provide:
+- name: The exact skill name from the list
+- description: What the skill enables (one sentence)
+- attribute: The associated attribute name (must be from the list above)
 
     </generationPrompt>
 </template>

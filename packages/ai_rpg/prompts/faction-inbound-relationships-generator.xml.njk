@@ -59,24 +59,16 @@ Existing factions (each one needs exactly one disposition toward the new faction
 {% endfor %}
 </existingFactions>
 
-Output only XML with this schema:
-<factionRelationships>
-  <faction>
-    <name>Existing Faction Name</name>
-    <relations>
-      <relation>
-        <factionName>{{ newFaction.name }}</factionName>
-        <status>allied|neutral|hostile|rival</status>
-        <notes>One sentence describing this faction's stance toward the new faction.</notes>
-      </relation>
-    </relations>
-  </faction>
-</factionRelationships>
+For each existing faction, produce one entry containing:
+- name: The existing faction's exact name
+- relations: A list with exactly one relation toward the new faction, containing:
+  - factionName: "{{ newFaction.name }}" (exact)
+  - status: One of allied, neutral, hostile, or rival
+  - notes: One sentence describing this faction's stance toward the new faction
 
 Requirements:
-- Include exactly one &lt;faction&gt; entry for each listed existing faction, and no extra entries.
-- Each listed faction must contain exactly one &lt;relation&gt;.
-- That relation's &lt;factionName&gt; must be the new faction's exact name.
-- Return only XML.
+- Include exactly one entry for each listed existing faction, and no extra entries.
+- Each entry must contain exactly one relation.
+- That relation's factionName must be the new faction's exact name.
     </generationPrompt>
 </template>

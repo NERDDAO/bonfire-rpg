@@ -13,10 +13,9 @@ Your task:
 - Keep relation statuses limited to: allied, neutral, hostile, rival.
 - Ensure each relation includes concise notes.
 - Ensure reputation tiers are sensible and ordered by threshold.
-- Use the exact nested XML schema shown below for all generated entries.
-- Do not use attribute-only, shorthand, or compact variants for `asset`, `relation`, or `tier` nodes.
+- Ensure all generated entries use the full nested structure for assets, relations, and tiers.
 
-Return only XML for a single &lt;faction&gt; entry, with no commentary.
+Return only the completed faction data, with no commentary.
 </systemPrompt>
 
 <generationPrompt>
@@ -97,46 +96,10 @@ Partially completed faction to finish:
 
 Fill any empty/missing fields while preserving all non-empty fields exactly.
 If relations are empty, add one relation per existing faction name.
-If reputation tiers are empty, provide at least 3 ordered tiers.
-Use this exact output schema:
-<faction>
-  <name>...</name>
-  <homeRegionName>...</homeRegionName>
-  <shortDescription>...</shortDescription>
-  <description>...</description>
-  <tags>
-    <tag>...</tag>
-  </tags>
-  <goals>
-    <goal>...</goal>
-  </goals>
-  <assets>
-    <asset>
-      <name>...</name>
-      <type>...</type>
-      <description>...</description>
-    </asset>
-  </assets>
-  <relations>
-    <relation>
-      <factionName>...</factionName>
-      <status>allied|neutral|hostile|rival</status>
-      <notes>...</notes>
-    </relation>
-  </relations>
-  <reputationTiers>
-    <tier>      
-      <threshold><!-- note: thresholds are typically -60, -20, 0, 20, 60 --></threshold>
-      <label>...</label>
-      <perks>
-        <perk>...</perk>
-      </perks>
-      <penalties>
-        <penalty>...</penalty>
-      </penalties>
-    </tier>
-  </reputationTiers>
-</faction>
-Return only the completed XML faction node.
+If reputation tiers are empty, provide at least 3 ordered tiers (thresholds are typically -60, -20, 0, 20, 60).
+
+Each faction must include: name, homeRegionName, shortDescription, description, tags, goals, assets (each with name, type, description), relations (each with factionName, status as allied/neutral/hostile/rival, notes), and reputationTiers (each with threshold, label, perks, penalties).
+
+Respond with the requested information in a structured format.
 </generationPrompt>
 </template>

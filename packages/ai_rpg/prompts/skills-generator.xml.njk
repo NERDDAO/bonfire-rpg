@@ -24,15 +24,10 @@ Existing skills (if any):
 {% for skill in existingSkills %}- {{ skill.name }}
 {% endfor %}
 
-Generate exactly {{ numSkills }} skills in XML format using the following structure, making sure the skills distinct in function from the existing ones listed above:
-<skills>
-  <skill>
-    <name>Skill Name</name>
-    <description>What the skill enables.</description>
-    <attribute>Associated Attribute Name</attribute>
-  </skill>
-  ...
-</skills>
+Generate exactly {{ numSkills }} skills, making sure they are distinct in function from the existing ones listed above. For each skill provide:
+- name: A short, evocative name (2-5 words), unique within the list
+- description: What the skill enables (one sentence)
+- attribute: The associated attribute name (must be from the list above)
 
 Ensure all skill names are unique and suitable for use in a skill list presented to players.
     </generationPrompt>

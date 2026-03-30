@@ -39,16 +39,8 @@ You are a an AI role-playing gamemaster.
 {% endfor %}</gearSlots>
 </context>
 
-The above specified character is equipping their best available gear for their level and role from the list of items below (use your judgment based on stats, bonuses, character description, and so on).  Slot types must match.  The character can only equip one item per gear slot. Return the following format:
+The above specified character is equipping their best available gear for their level and role from the list of items below (use your judgment based on stats, bonuses, character description, and so on). Slot types must match. The character can only equip one item per gear slot.
 
-<items>
-  <item>
-    <itemName>The exact name of the item</itemName>
-    <slotName>The exact name of the gear slot it is being equipped to</slotName>
-  </item>
-  <item>
-    ... and so on ...
-  </item>
-</items>
+For each item you select, provide the exact item name and the exact gear slot name it is being equipped to.
 </generationPrompt>
 </template>

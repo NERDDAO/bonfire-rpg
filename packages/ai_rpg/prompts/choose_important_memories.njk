@@ -19,14 +19,10 @@ You are an AI designed to analyze what memories NPCs would recall given a specif
 
 <textToCheck>{{ textToCheck }}</textToCheck>
 
-<task>In the above text, for each NPC listed in the npcsToCheck block, identify and list the most relevant memories they would recall given the text in textToCheck, prioritizing memories that contain things, places, people, concepts, etc, that are mentioned in the chat, and using interestingness as a tie breaker.  Reply in this format:</task>
+In the above text, for each NPC listed in the npcsToCheck block, identify and list the most relevant memories they would recall given the text in textToCheck, prioritizing memories that contain things, places, people, concepts, etc, that are mentioned in the chat, and using interestingness as a tie breaker.
 
-<memoriesToRecall>
-  <npc>
-    <name>exact NPC name</name>
-    <recalledMemories>[comma separated list of the index numbers of exactly {{ max_memories_to_recall }} memories, for example: 2, 3, 6, ...]</recalledMemories>
-  </npc>
-  ... repeat for each NPC ...
-</memoriesToRecall>
+For each NPC, provide:
+- name: The exact NPC name
+- recalledMemories: A comma-separated list of the index numbers of exactly {{ max_memories_to_recall }} memories (for example: "2, 3, 6, ...")
 </generationPrompt>
 </template>

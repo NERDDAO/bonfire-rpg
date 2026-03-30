@@ -24,32 +24,15 @@ Faction generation guidance:
 {{ generationNotes }}
 {% endif %}
 
-Step 1: Generate exactly {{ numFactions }} factions for this setting in whatever format you are most comfortable with, thinking about their unique identities and goals.
-
-Step 2: Output them in XML using this structure. All fields are required.:
-<factions>
-  <faction>
-    <name>Faction Name</name>
-    <tags>
-      <tag>keyword</tag>
-    </tags>
-    <goals>
-      <goal>Goal text.</goal>
-    </goals>
-    <homeRegion>Optional home region name</homeRegion>
-    <description>A description of the faction: their unique identities, goals, and relationships, etc. ~2 paragraphs.</description>
-    <shortDescription>1 sentence summary of the faction.</shortDescription>
-    <assets>
-      <asset>
-        <name>Asset Name</name>
-        <type>outpost|trade_route|leader|resource|service</type>
-        <description>Short asset description.</description>
-      </asset>
-    </assets>
-  </faction>
-</factions>
+Generate exactly {{ numFactions }} factions for this setting, thinking about their unique identities and goals. All fields are required for each faction:
+- name: Faction name (2-5 words, must be unique)
+- tags: 3-6 ideology/archetype keywords
+- goals: 2-4 concise goals
+- homeRegion: Optional home region name
+- description: A description of the faction: their unique identities, goals, and relationships, etc. (~2 paragraphs)
+- shortDescription: 1 sentence summary
+- assets: 2-4 assets, each with a name, type (outpost, trade_route, leader, resource, or service), and short description
 
 Make sure all faction names are unique.
-Return only XML.
     </generationPrompt>
 </template>
